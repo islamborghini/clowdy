@@ -2,8 +2,8 @@
 Environment variables router.
 
 Manages per-project environment variables that get injected into Docker
-containers at function invocation time. Secret values are masked in API
-responses but stored in plain text in the database for injection.
+containers at function invocation time. The is_secret flag is used by
+the frontend to decide whether to show or hide the value by default.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -18,8 +18,6 @@ from app.schemas import EnvVarResponse, EnvVarSet
 
 router = APIRouter(prefix="/api/projects", tags=["env_vars"])
 
-MASKED_VALUE = "********"
-
 
 @router.get("/{project_id}/env", response_model=list[EnvVarResponse])
 async def list_env_vars(
@@ -27,7 +25,7 @@ async def list_env_vars(
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all environment variables for a project. Secret values are masked."""
+    """List all environment variables for a project."""
     await _get_user_project(db, project_id, user_id)
 
     result = await db.execute(
@@ -35,19 +33,7 @@ async def list_env_vars(
         .where(EnvVar.project_id == project_id)
         .order_by(EnvVar.key)
     )
-    env_vars = result.scalars().all()
-
-    return [
-        EnvVarResponse(
-            id=ev.id,
-            key=ev.key,
-            value=MASKED_VALUE if ev.is_secret else ev.value,
-            is_secret=ev.is_secret,
-            created_at=ev.created_at,
-            updated_at=ev.updated_at,
-        )
-        for ev in env_vars
-    ]
+    return result.scalars().all()
 
 
 @router.post("/{project_id}/env", response_model=EnvVarResponse)
@@ -91,14 +77,7 @@ async def set_env_var(
         await db.commit()
         await db.refresh(ev)
 
-    return EnvVarResponse(
-        id=ev.id,
-        key=ev.key,
-        value=MASKED_VALUE if ev.is_secret else ev.value,
-        is_secret=ev.is_secret,
-        created_at=ev.created_at,
-        updated_at=ev.updated_at,
-    )
+    return ev
 
 
 @router.delete("/{project_id}/env/{key}")
