@@ -12,12 +12,14 @@ Key concepts:
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import FRONTEND_URL
-from app.database import engine
-from app.models import Base
+from app.database import engine, get_db
+from app.models import Base, Function, Invocation
 from app.routers import chat, functions, invoke
 
 
@@ -61,3 +63,39 @@ app.include_router(chat.router)
 async def health():
     """Simple health check endpoint. Returns {"status": "ok"} if the server is running."""
     return {"status": "ok"}
+
+
+@app.get("/api/stats")
+async def stats(db: AsyncSession = Depends(get_db)):
+    """
+    Dashboard statistics endpoint.
+
+    Returns aggregate numbers for the dashboard: total functions,
+    total invocations, success count, and average duration.
+    All computed with SQL COUNT/AVG so it's fast even with lots of data.
+    """
+    # Count total functions
+    fn_result = await db.execute(select(func.count()).select_from(Function))
+    total_functions = fn_result.scalar() or 0
+
+    # Count total invocations and successes, average duration
+    inv_result = await db.execute(
+        select(
+            func.count(),
+            func.count().filter(Invocation.status == "success"),
+            func.avg(Invocation.duration_ms),
+        ).select_from(Invocation)
+    )
+    row = inv_result.one()
+    total_invocations = row[0] or 0
+    successful = row[1] or 0
+    avg_duration = round(row[2] or 0)
+
+    success_rate = round((successful / total_invocations) * 100) if total_invocations > 0 else 0
+
+    return {
+        "total_functions": total_functions,
+        "total_invocations": total_invocations,
+        "success_rate": success_rate,
+        "avg_duration_ms": avg_duration,
+    }

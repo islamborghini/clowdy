@@ -61,6 +61,9 @@ export const api = {
   /** Ping the backend to check if it's running. Returns { status: "ok" }. */
   health: () => apiFetch<{ status: string }>("/api/health"),
 
+  /** Fetch dashboard statistics (function count, invocation count, etc.). */
+  stats: () => apiFetch<StatsResponse>("/api/stats"),
+
   /**
    * Send a message to the AI agent. Pass the full conversation history
    * so the AI has context of previous messages.
@@ -159,6 +162,16 @@ export interface InvocationResponse {
   status: string
   duration_ms: number
   created_at: string
+}
+
+// --- Stats types ---
+
+/** Dashboard statistics returned by the backend. */
+export interface StatsResponse {
+  total_functions: number
+  total_invocations: number
+  success_rate: number
+  avg_duration_ms: number
 }
 
 // --- Chat types ---
