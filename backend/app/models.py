@@ -74,7 +74,10 @@ class Function(Base):
 
     # Relationship: one function has many invocations.
     # back_populates creates a two-way link (function.invocations <-> invocation.function).
-    invocations: Mapped[list["Invocation"]] = relationship(back_populates="function")
+    # cascade="all, delete-orphan" means deleting a function also deletes its invocations.
+    invocations: Mapped[list["Invocation"]] = relationship(
+        back_populates="function", cascade="all, delete-orphan"
+    )
 
 
 class Invocation(Base):

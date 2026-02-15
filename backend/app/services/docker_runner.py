@@ -22,11 +22,11 @@ Usage:
 """
 
 import asyncio
+import io
 import json
 import os
-import tempfile
+import tarfile
 import time
-from pathlib import Path
 
 import docker
 from docker.errors import ContainerError, ImageNotFound, APIError
@@ -53,8 +53,9 @@ def _get_docker_client() -> docker.DockerClient:
         return docker.from_env()
 
     # Check for Colima socket (common on macOS)
-    colima_sock = Path.home() / ".colima" / "default" / "docker.sock"
-    if colima_sock.exists():
+    home = os.path.expanduser("~")
+    colima_sock = os.path.join(home, ".colima", "default", "docker.sock")
+    if os.path.exists(colima_sock):
         return docker.DockerClient(base_url=f"unix://{colima_sock}")
 
     # Fall back to default
@@ -84,56 +85,70 @@ async def run_function(code: str, input_data: dict) -> dict:
     return await asyncio.to_thread(_run_in_container, code, input_data)
 
 
+def _make_tar(filename: str, content: str) -> bytes:
+    """
+    Create an in-memory tar archive containing a single file.
+
+    Docker's put_archive API requires a tar stream to copy files into a
+    container. This builds that tar archive in memory so we don't need
+    to write anything to the host filesystem.
+    """
+    data = content.encode("utf-8")
+    tarstream = io.BytesIO()
+    with tarfile.open(fileobj=tarstream, mode="w") as tar:
+        info = tarfile.TarInfo(name=filename)
+        info.size = len(data)
+        tar.addfile(info, io.BytesIO(data))
+    tarstream.seek(0)
+    return tarstream.read()
+
+
 def _run_in_container(code: str, input_data: dict) -> dict:
     """
     Synchronous function that does the actual Docker work.
 
     Steps:
-    1. Write user code to a temporary file on disk
-    2. Create and start a Docker container
-    3. Mount the temp file into the container
-    4. Wait for the container to finish (or timeout)
-    5. Read stdout for the result
-    6. Clean up the container
-    7. Return the result with timing info
+    1. Create a container (stopped) from the runtime image
+    2. Copy user code into the container using put_archive (docker cp)
+    3. Start the container and wait for it to finish (or timeout)
+    4. Read stdout for the result
+    5. Clean up the container
+    6. Return the result with timing info
+
+    We use put_archive instead of volume mounts because volume mounts
+    don't work reliably with Colima/remote Docker (the host file path
+    isn't accessible inside the VM).
     """
     client = _get_docker_client()
     start_time = time.time()
 
-    # Write the user's code to a temporary file.
-    # tempfile.NamedTemporaryFile creates a file that's automatically
-    # deleted when closed, but we keep it open until the container is done.
-    # suffix=".py" ensures the file ends in .py for the Python import to work.
-    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False)
-    tmp.write(code)
-    tmp.flush()
-    tmp_path = tmp.name
-    tmp.close()
-
     container = None
     try:
-        # Create and start the container.
-        # volumes: mount the temp file as /app/function.py inside the container
-        # environment: pass the input data as a JSON string
+        # Create the container in stopped state.
+        # We need it stopped first so we can copy the code file in
+        # before it starts running.
         # network_disabled: prevent the function from making network calls
         # mem_limit: cap memory at 128MB to prevent abuse
         # nano_cpus: limit to 0.5 CPU cores (500 million nanocpus)
-        container = client.containers.run(
+        container = client.containers.create(
             IMAGE_NAME,
-            detach=True,
-            volumes={tmp_path: {"bind": "/app/function.py", "mode": "ro"}},
             environment={"INPUT_JSON": json.dumps(input_data)},
             network_disabled=True,
             mem_limit="128m",
             nano_cpus=500_000_000,
         )
 
-        # Wait for the container to finish, with a timeout.
-        # container.wait() blocks until the container exits or timeout is reached.
+        # Copy the user's code into the container at /app/function.py.
+        # put_archive takes a tar archive and extracts it at the given path.
+        tar_data = _make_tar("function.py", code)
+        container.put_archive("/app", tar_data)
+
+        # Start the container and wait for it to finish.
+        container.start()
         result = container.wait(timeout=TIMEOUT_SECONDS)
         exit_code = result.get("StatusCode", -1)
 
-        # Read stdout (the function's result) and stderr (any print statements or errors).
+        # Read stdout (the function's result) and stderr (any errors).
         stdout = container.logs(stdout=True, stderr=False).decode("utf-8").strip()
         stderr = container.logs(stdout=False, stderr=True).decode("utf-8").strip()
 
@@ -196,13 +211,9 @@ def _run_in_container(code: str, input_data: dict) -> dict:
         return {"success": False, "output": f"Unexpected error: {exc}", "duration_ms": duration_ms}
 
     finally:
-        # Always clean up: remove the container and the temp file.
+        # Always clean up: remove the container.
         if container:
             try:
                 container.remove(force=True)
             except Exception:
                 pass
-        try:
-            Path(tmp_path).unlink(missing_ok=True)
-        except Exception:
-            pass
