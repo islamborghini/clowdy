@@ -15,6 +15,7 @@ error object instead so the backend always gets valid JSON back.
 """
 
 import importlib.util
+import inspect
 import json
 import os
 import sys
@@ -48,9 +49,25 @@ def main():
         print(json.dumps({"error": "Function must define a handler(input) function"}))
         sys.exit(1)
 
-    # Call the user's handler with the input data and capture the result.
+    # Detect handler signature: handler(input) vs handler(event, context).
+    # The gateway passes a rich event dict with method/path/params/query/headers/body.
+    # Functions using handler(event, context) get a context dict with metadata.
+    # Old-style handler(input) still works exactly as before.
     try:
-        result = module.handler(input_data)
+        sig = inspect.signature(module.handler)
+        param_count = len(sig.parameters)
+    except (ValueError, TypeError):
+        param_count = 1
+
+    try:
+        if param_count >= 2:
+            context = {
+                "function_name": os.environ.get("FUNCTION_NAME", "unknown"),
+                "runtime": "python",
+            }
+            result = module.handler(input_data, context)
+        else:
+            result = module.handler(input_data)
     except Exception:
         print(json.dumps({"error": f"Function error: {traceback.format_exc()}"}))
         sys.exit(1)
