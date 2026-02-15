@@ -45,6 +45,7 @@ async def create_function(
         code=data.code,
         runtime=data.runtime,
         user_id=user_id,
+        project_id=data.project_id,
     )
     db.add(fn)  # Stage the new row for insertion
     await db.commit()  # Write it to the database

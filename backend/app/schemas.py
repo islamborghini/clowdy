@@ -68,6 +68,7 @@ class FunctionCreate(BaseModel):
     description: str = ""
     code: str
     runtime: str = "python"
+    project_id: str | None = None
 
 
 class FunctionUpdate(BaseModel):

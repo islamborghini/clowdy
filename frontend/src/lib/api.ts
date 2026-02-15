@@ -197,6 +197,7 @@ export interface FunctionCreate {
   description?: string
   code: string
   runtime?: string // defaults to "python" on the backend
+  project_id?: string
 }
 
 /** What the backend returns when you invoke a function. */

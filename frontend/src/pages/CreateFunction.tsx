@@ -6,7 +6,7 @@
  * backend API to create the function, then redirects to its detail page.
  */
 import { useState } from "react"
-import { Link, useNavigate } from "react-router"
+import { Link, useNavigate, useParams } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -30,6 +30,7 @@ const DEFAULT_CODE = `def handler(input):
 `
 
 export function CreateFunction() {
+  const { id: projectId } = useParams()
   const navigate = useNavigate()
   const [name, setName] = useState("")
   const [description, setDescription] = useState("")
@@ -56,9 +57,10 @@ export function CreateFunction() {
         name: name.trim(),
         description: description.trim(),
         code,
+        project_id: projectId,
       })
-      // Redirect to the newly created function's detail page
-      navigate(`/functions/${fn.id}`)
+      // Redirect back to the project if created from a project, otherwise to the function
+      navigate(projectId ? `/projects/${projectId}` : `/functions/${fn.id}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create function")
     } finally {
@@ -69,9 +71,9 @@ export function CreateFunction() {
   return (
     <div>
       <div className="mb-6 flex items-center gap-4">
-        <Link to="/functions">
+        <Link to={projectId ? `/projects/${projectId}` : "/functions"}>
           <Button variant="ghost" size="sm">
-            ← Back
+            &larr; Back
           </Button>
         </Link>
         <h2 className="text-3xl font-bold">New Function</h2>
