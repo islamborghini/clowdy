@@ -24,3 +24,9 @@ FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 # Get a free key at https://console.groq.com/keys
 # Set it in your environment: export GROQ_API_KEY="gsk_..."
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+
+# Clerk authentication settings.
+# Get these from your Clerk dashboard at https://dashboard.clerk.com
+# CLERK_JWKS_URL is your instance's JWKS endpoint for verifying JWTs.
+# Format: https://<your-instance>.clerk.accounts.dev/.well-known/jwks.json
+CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")

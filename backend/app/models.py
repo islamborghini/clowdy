@@ -51,6 +51,7 @@ class Function(Base):
 
     Columns:
         id          - Unique identifier (auto-generated, e.g. "a1b2c3d4e5f6")
+        user_id     - Clerk user ID of the owner (nullable for legacy functions)
         name        - Human-readable name (e.g. "celsius_converter")
         description - Optional description of what the function does
         code        - The actual source code (stored as text)
@@ -63,6 +64,7 @@ class Function(Base):
     __tablename__ = "functions"
 
     id: Mapped[str] = mapped_column(primary_key=True, default=generate_id)
+    user_id: Mapped[str | None] = mapped_column(default=None, index=True)
     name: Mapped[str] = mapped_column(index=True)
     description: Mapped[str] = mapped_column(default="")
     code: Mapped[str] = mapped_column(Text)

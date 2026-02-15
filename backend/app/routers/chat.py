@@ -26,6 +26,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models import Function, Invocation
 from app.services.ai_agent import chat_with_tools
@@ -54,7 +55,11 @@ class ChatResponse(BaseModel):
 
 
 @router.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
+async def chat(
+    request: ChatRequest,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Chat with the AI agent.
 
@@ -72,17 +77,17 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         "call create_function", this function does the real work.
         """
         if tool_name == "create_function":
-            return await _tool_create_function(db, tool_args)
+            return await _tool_create_function(db, user_id, tool_args)
         elif tool_name == "list_functions":
-            return await _tool_list_functions(db)
+            return await _tool_list_functions(db, user_id)
         elif tool_name == "invoke_function":
-            return await _tool_invoke_function(db, tool_args)
+            return await _tool_invoke_function(db, user_id, tool_args)
         elif tool_name == "view_logs":
-            return await _tool_view_logs(db, tool_args)
+            return await _tool_view_logs(db, user_id, tool_args)
         elif tool_name == "update_function":
-            return await _tool_update_function(db, tool_args)
+            return await _tool_update_function(db, user_id, tool_args)
         elif tool_name == "delete_function":
-            return await _tool_delete_function(db, tool_args)
+            return await _tool_delete_function(db, user_id, tool_args)
         else:
             return {"error": f"Unknown tool: {tool_name}"}
 
@@ -111,13 +116,14 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 # return simplified dicts that the AI can understand and relay to the user.
 
 
-async def _tool_create_function(db: AsyncSession, args: dict) -> dict:
+async def _tool_create_function(db: AsyncSession, user_id: str, args: dict) -> dict:
     """Create a new function in the database."""
     fn = Function(
         name=args["name"],
         description=args.get("description", ""),
         code=args["code"],
         runtime="python",
+        user_id=user_id,
     )
     db.add(fn)
     await db.commit()
@@ -130,9 +136,13 @@ async def _tool_create_function(db: AsyncSession, args: dict) -> dict:
     }
 
 
-async def _tool_list_functions(db: AsyncSession) -> dict:
-    """List all functions."""
-    stmt = select(Function).order_by(Function.created_at.desc())
+async def _tool_list_functions(db: AsyncSession, user_id: str) -> dict:
+    """List all functions for the authenticated user."""
+    stmt = (
+        select(Function)
+        .where(Function.user_id == user_id)
+        .order_by(Function.created_at.desc())
+    )
     result = await db.execute(stmt)
     functions = result.scalars().all()
 
@@ -153,10 +163,10 @@ async def _tool_list_functions(db: AsyncSession) -> dict:
     }
 
 
-async def _tool_invoke_function(db: AsyncSession, args: dict) -> dict:
+async def _tool_invoke_function(db: AsyncSession, user_id: str, args: dict) -> dict:
     """Invoke a function in a Docker container."""
     fn = await db.get(Function, args["function_id"])
-    if not fn:
+    if not fn or fn.user_id != user_id:
         return {"error": f"Function '{args['function_id']}' not found"}
 
     if fn.status != "active":
@@ -183,10 +193,10 @@ async def _tool_invoke_function(db: AsyncSession, args: dict) -> dict:
     }
 
 
-async def _tool_view_logs(db: AsyncSession, args: dict) -> dict:
+async def _tool_view_logs(db: AsyncSession, user_id: str, args: dict) -> dict:
     """View recent invocation logs for a function."""
     fn = await db.get(Function, args["function_id"])
-    if not fn:
+    if not fn or fn.user_id != user_id:
         return {"error": f"Function '{args['function_id']}' not found"}
 
     stmt = (
@@ -215,10 +225,10 @@ async def _tool_view_logs(db: AsyncSession, args: dict) -> dict:
     }
 
 
-async def _tool_update_function(db: AsyncSession, args: dict) -> dict:
+async def _tool_update_function(db: AsyncSession, user_id: str, args: dict) -> dict:
     """Update a function's name, description, or code."""
     fn = await db.get(Function, args["function_id"])
-    if not fn:
+    if not fn or fn.user_id != user_id:
         return {"error": f"Function '{args['function_id']}' not found"}
 
     if "name" in args and args["name"]:
@@ -238,10 +248,10 @@ async def _tool_update_function(db: AsyncSession, args: dict) -> dict:
     }
 
 
-async def _tool_delete_function(db: AsyncSession, args: dict) -> dict:
+async def _tool_delete_function(db: AsyncSession, user_id: str, args: dict) -> dict:
     """Delete a function and its invocation logs."""
     fn = await db.get(Function, args["function_id"])
-    if not fn:
+    if not fn or fn.user_id != user_id:
         return {"error": f"Function '{args['function_id']}' not found"}
 
     name = fn.name

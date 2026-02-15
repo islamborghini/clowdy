@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user
 from app.database import get_db
 from app.models import Function
 from app.schemas import FunctionCreate, FunctionResponse, FunctionUpdate
@@ -26,7 +27,11 @@ router = APIRouter(prefix="/api/functions", tags=["functions"])
 
 
 @router.post("", response_model=FunctionResponse)
-async def create_function(data: FunctionCreate, db: AsyncSession = Depends(get_db)):
+async def create_function(
+    data: FunctionCreate,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Create a new serverless function.
 
@@ -39,6 +44,7 @@ async def create_function(data: FunctionCreate, db: AsyncSession = Depends(get_d
         description=data.description,
         code=data.code,
         runtime=data.runtime,
+        user_id=user_id,
     )
     db.add(fn)  # Stage the new row for insertion
     await db.commit()  # Write it to the database
@@ -47,26 +53,38 @@ async def create_function(data: FunctionCreate, db: AsyncSession = Depends(get_d
 
 
 @router.get("", response_model=list[FunctionResponse])
-async def list_functions(db: AsyncSession = Depends(get_db)):
-    """List all functions, newest first."""
-    result = await db.execute(select(Function).order_by(Function.created_at.desc()))
-    # .scalars() extracts the Function objects from the result rows
-    # .all() collects them into a list
+async def list_functions(
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """List all functions for the authenticated user, newest first."""
+    result = await db.execute(
+        select(Function)
+        .where(Function.user_id == user_id)
+        .order_by(Function.created_at.desc())
+    )
     return result.scalars().all()
 
 
 @router.get("/{function_id}", response_model=FunctionResponse)
-async def get_function(function_id: str, db: AsyncSession = Depends(get_db)):
-    """Get a single function by its ID."""
+async def get_function(
+    function_id: str,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a single function by its ID. Must belong to the authenticated user."""
     fn = await db.get(Function, function_id)
-    if not fn:
+    if not fn or fn.user_id != user_id:
         raise HTTPException(status_code=404, detail="Function not found")
     return fn
 
 
 @router.put("/{function_id}", response_model=FunctionResponse)
 async def update_function(
-    function_id: str, data: FunctionUpdate, db: AsyncSession = Depends(get_db)
+    function_id: str,
+    data: FunctionUpdate,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     """
     Update an existing function. Only provided fields are changed.
@@ -76,7 +94,7 @@ async def update_function(
     we only update the name - code and description stay unchanged.
     """
     fn = await db.get(Function, function_id)
-    if not fn:
+    if not fn or fn.user_id != user_id:
         raise HTTPException(status_code=404, detail="Function not found")
 
     # Loop through each provided field and update the model attribute
@@ -89,10 +107,14 @@ async def update_function(
 
 
 @router.delete("/{function_id}")
-async def delete_function(function_id: str, db: AsyncSession = Depends(get_db)):
-    """Delete a function by its ID."""
+async def delete_function(
+    function_id: str,
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a function by its ID. Must belong to the authenticated user."""
     fn = await db.get(Function, function_id)
-    if not fn:
+    if not fn or fn.user_id != user_id:
         raise HTTPException(status_code=404, detail="Function not found")
     await db.delete(fn)
     await db.commit()
