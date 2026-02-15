@@ -10,8 +10,11 @@ Key concepts:
 - Routers: modular groups of related endpoints (imported from routers/)
 """
 
+import os
 from contextlib import asynccontextmanager
 
+from alembic import command
+from alembic.config import Config
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
@@ -19,8 +22,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import FRONTEND_URL
 from app.database import engine, get_db
-from app.models import Base, Function, Invocation
+from app.models import Function, Invocation
 from app.routers import chat, functions, invoke
+
+
+def _run_migrations() -> None:
+    """Run Alembic migrations on startup.
+
+    Finds the alembic.ini relative to this file (in the backend/ directory)
+    and upgrades the database to the latest migration.
+    """
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    alembic_cfg = Config(os.path.join(backend_dir, "alembic.ini"))
+    alembic_cfg.set_main_option("script_location", os.path.join(backend_dir, "alembic"))
+    command.upgrade(alembic_cfg, "head")
 
 
 @asynccontextmanager
@@ -28,13 +43,13 @@ async def lifespan(app: FastAPI):
     """
     Application lifespan handler.
 
-    Code before "yield" runs on startup - we use it to create database tables
-    if they don't exist yet (create_all is safe to call multiple times).
+    Code before "yield" runs on startup - we run Alembic migrations to
+    ensure the database schema is up to date. Alembic handles both creating
+    new tables and altering existing ones.
 
     Code after "yield" runs on shutdown - we clean up the database connection pool.
     """
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    _run_migrations()
     yield
     await engine.dispose()
 
