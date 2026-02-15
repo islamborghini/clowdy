@@ -42,41 +42,54 @@ class Base(DeclarativeBase):
     pass
 
 
+class Project(Base):
+    """
+    A project groups related functions under a single deployable unit.
+
+    Projects are the top-level organizational entity. In later phases they
+    will also hold routes, environment variables, and database connections.
+    """
+
+    __tablename__ = "projects"
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=generate_id)
+    user_id: Mapped[str] = mapped_column(index=True)
+    name: Mapped[str] = mapped_column(index=True)
+    slug: Mapped[str] = mapped_column(unique=True)
+    description: Mapped[str] = mapped_column(default="")
+    status: Mapped[str] = mapped_column(default="active")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+    functions: Mapped[list["Function"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+
+
 class Function(Base):
     """
     A serverless function created by a user.
 
     This maps to the "functions" table in SQLite. Each row represents one
     deployed function with its source code and metadata.
-
-    Columns:
-        id          - Unique identifier (auto-generated, e.g. "a1b2c3d4e5f6")
-        user_id     - Clerk user ID of the owner (nullable for legacy functions)
-        name        - Human-readable name (e.g. "celsius_converter")
-        description - Optional description of what the function does
-        code        - The actual source code (stored as text)
-        runtime     - Language runtime to use (currently only "python")
-        status      - "active" or "error"
-        created_at  - When the function was first created
-        updated_at  - When the function was last modified
     """
 
     __tablename__ = "functions"
 
     id: Mapped[str] = mapped_column(primary_key=True, default=generate_id)
     user_id: Mapped[str | None] = mapped_column(default=None, index=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id"), default=None, index=True
+    )
     name: Mapped[str] = mapped_column(index=True)
     description: Mapped[str] = mapped_column(default="")
     code: Mapped[str] = mapped_column(Text)
     runtime: Mapped[str] = mapped_column(default="python")
     status: Mapped[str] = mapped_column(default="active")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    # onupdate=utcnow automatically updates this timestamp whenever the row is modified
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
-    # Relationship: one function has many invocations.
-    # back_populates creates a two-way link (function.invocations <-> invocation.function).
-    # cascade="all, delete-orphan" means deleting a function also deletes its invocations.
+    project: Mapped["Project | None"] = relationship(back_populates="functions")
     invocations: Mapped[list["Invocation"]] = relationship(
         back_populates="function", cascade="all, delete-orphan"
     )
