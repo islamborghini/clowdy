@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import FRONTEND_URL
 from app.database import engine
 from app.models import Base
-from app.routers import functions
+from app.routers import functions, invoke
 
 
 @asynccontextmanager
