@@ -1,14 +1,40 @@
+/**
+ * API client for communicating with the FastAPI backend.
+ *
+ * This module provides a typed wrapper around the browser's fetch API.
+ * All requests go to the backend server (default: http://localhost:8000).
+ * You can override the URL by setting VITE_API_URL in a .env file.
+ */
+
+// Read the backend URL from environment variables, falling back to localhost.
+// "import.meta.env" is Vite's way of accessing env vars (similar to process.env in Node).
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
+/**
+ * Generic fetch wrapper that handles JSON requests/responses and errors.
+ *
+ * The <T> is a TypeScript generic - it lets callers specify what type the
+ * response JSON will be. For example: apiFetch<{ status: string }>("/api/health")
+ * tells TypeScript the response has a "status" field that is a string.
+ *
+ * @param path - The API endpoint path (e.g. "/api/functions")
+ * @param options - Standard fetch options (method, body, headers, etc.)
+ * @returns The parsed JSON response, typed as T
+ * @throws Error if the response status is not 2xx
+ */
 export async function apiFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
+    // Default to JSON content type, but allow overriding via options.headers
     headers: { "Content-Type": "application/json", ...options?.headers },
     ...options,
   })
 
+  // If the response is not OK (status 400, 404, 500, etc.), throw an error.
+  // We try to parse the error body as JSON (FastAPI returns { "detail": "..." }),
+  // but fall back to the HTTP status text if parsing fails.
   if (!res.ok) {
     const error = await res.json().catch(() => ({ detail: res.statusText }))
     throw new Error(error.detail || "API request failed")
@@ -17,21 +43,46 @@ export async function apiFetch<T>(
   return res.json()
 }
 
+/**
+ * Organized API methods grouped by resource.
+ *
+ * Usage:
+ *   api.health()                          - Check if backend is running
+ *   api.functions.list()                  - Get all functions
+ *   api.functions.create({ name, code })  - Create a new function
+ *   api.functions.get("abc123")           - Get a specific function
+ *   api.functions.update("abc123", {...}) - Update a function
+ *   api.functions.delete("abc123")        - Delete a function
+ */
 export const api = {
+  /** Ping the backend to check if it's running. Returns { status: "ok" }. */
   health: () => apiFetch<{ status: string }>("/api/health"),
+
   functions: {
+    /** Fetch all functions for the current user, newest first. */
     list: () => apiFetch<FunctionResponse[]>("/api/functions"),
+
+    /** Fetch a single function by its ID. */
     get: (id: string) => apiFetch<FunctionResponse>(`/api/functions/${id}`),
+
+    /** Create a new function. Returns the created function with its generated ID. */
     create: (data: FunctionCreate) =>
       apiFetch<FunctionResponse>("/api/functions", {
         method: "POST",
         body: JSON.stringify(data),
       }),
+
+    /**
+     * Update an existing function. Only the fields you include will be changed.
+     * Partial<FunctionCreate> means all fields are optional.
+     */
     update: (id: string, data: Partial<FunctionCreate>) =>
       apiFetch<FunctionResponse>(`/api/functions/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
       }),
+
+    /** Delete a function by ID. Returns { detail: "Function deleted" }. */
     delete: (id: string) =>
       apiFetch<{ detail: string }>(`/api/functions/${id}`, {
         method: "DELETE",
@@ -39,7 +90,11 @@ export const api = {
   },
 }
 
-// Types matching the backend schemas
+// ----- Types -----
+// These interfaces mirror the Pydantic schemas on the backend (backend/app/schemas.py).
+// Keeping them in sync ensures the frontend and backend agree on data shapes.
+
+/** What the backend returns when you fetch a function. */
 export interface FunctionResponse {
   id: string
   name: string
@@ -51,9 +106,10 @@ export interface FunctionResponse {
   updated_at: string
 }
 
+/** What the backend expects when you create a new function. */
 export interface FunctionCreate {
   name: string
   description?: string
   code: string
-  runtime?: string
+  runtime?: string // defaults to "python" on the backend
 }

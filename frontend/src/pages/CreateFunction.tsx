@@ -1,3 +1,10 @@
+/**
+ * Create Function page.
+ *
+ * Will contain a form with a name/description input and a Monaco code editor
+ * for writing the function code. Currently a placeholder - Phase 2 will
+ * add the full form and editor.
+ */
 import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
