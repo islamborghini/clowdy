@@ -89,6 +89,20 @@ export const api = {
       apiFetch<{ detail: string }>(`/api/functions/${id}`, {
         method: "DELETE",
       }),
+
+    /**
+     * Invoke (run) a function with the given input data.
+     * This sends the code to a Docker container and returns the result.
+     */
+    invoke: (id: string, input: Record<string, unknown> = {}) =>
+      apiFetch<InvokeResponse>(`/api/invoke/${id}`, {
+        method: "POST",
+        body: JSON.stringify({ input }),
+      }),
+
+    /** Fetch invocation logs for a function, newest first. */
+    invocations: (id: string) =>
+      apiFetch<InvocationResponse[]>(`/api/functions/${id}/invocations`),
   },
 }
 
@@ -114,4 +128,24 @@ export interface FunctionCreate {
   description?: string
   code: string
   runtime?: string // defaults to "python" on the backend
+}
+
+/** What the backend returns when you invoke a function. */
+export interface InvokeResponse {
+  success: boolean
+  output?: Record<string, unknown>
+  error?: string
+  duration_ms: number
+  invocation_id: string
+}
+
+/** A single invocation log entry returned by the backend. */
+export interface InvocationResponse {
+  id: string
+  function_id: string
+  input: string
+  output: string
+  status: string
+  duration_ms: number
+  created_at: string
 }
