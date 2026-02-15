@@ -1,23 +1,25 @@
 /**
  * Project Detail page.
  *
- * Shows project metadata and a tabbed interface. Currently the "Functions"
- * tab is active; Routes, Env Vars, Database, and Settings tabs will be
- * added in later phases.
+ * Shows project metadata and a tabbed interface with Functions,
+ * Environment Variables, and Settings tabs.
  */
 import { useEffect, useState } from "react"
 import { useParams, Link, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { FunctionCard } from "@/components/functions/FunctionCard"
 import {
   api,
   type ProjectResponse,
   type FunctionResponse,
+  type EnvVarResponse,
 } from "@/lib/api"
 
-type Tab = "functions" | "settings"
+type Tab = "functions" | "environment" | "settings"
 
 export function ProjectDetail() {
   const { id } = useParams()
@@ -30,6 +32,16 @@ export function ProjectDetail() {
   const [activeTab, setActiveTab] = useState<Tab>("functions")
   const [deleting, setDeleting] = useState(false)
 
+  // Env vars state
+  const [envVars, setEnvVars] = useState<EnvVarResponse[]>([])
+  const [envLoading, setEnvLoading] = useState(false)
+  const [envError, setEnvError] = useState("")
+  const [newKey, setNewKey] = useState("")
+  const [newValue, setNewValue] = useState("")
+  const [newIsSecret, setNewIsSecret] = useState(true)
+  const [savingEnv, setSavingEnv] = useState(false)
+  const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
+
   useEffect(() => {
     if (!id) return
     Promise.all([api.projects.get(id), api.projects.functions(id)])
@@ -40,6 +52,17 @@ export function ProjectDetail() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [id])
+
+  // Load env vars when the environment tab is activated
+  useEffect(() => {
+    if (activeTab !== "environment" || !id) return
+    setEnvLoading(true)
+    api.projects.envVars
+      .list(id)
+      .then(setEnvVars)
+      .catch((err) => setEnvError(err.message))
+      .finally(() => setEnvLoading(false))
+  }, [activeTab, id])
 
   async function handleDelete() {
     if (!id || !project) return
@@ -56,12 +79,61 @@ export function ProjectDetail() {
     }
   }
 
+  async function handleAddEnvVar() {
+    if (!id || !newKey.trim()) return
+    setSavingEnv(true)
+    setEnvError("")
+    try {
+      const created = await api.projects.envVars.set(id, {
+        key: newKey.trim(),
+        value: newValue,
+        is_secret: newIsSecret,
+      })
+      // Replace if exists (upsert), otherwise add
+      setEnvVars((prev) => {
+        const filtered = prev.filter((ev) => ev.key !== created.key)
+        return [...filtered, created].sort((a, b) => a.key.localeCompare(b.key))
+      })
+      setNewKey("")
+      setNewValue("")
+      setNewIsSecret(true)
+    } catch (err) {
+      setEnvError(err instanceof Error ? err.message : "Failed to save env var")
+    } finally {
+      setSavingEnv(false)
+    }
+  }
+
+  async function handleDeleteEnvVar(key: string) {
+    if (!id) return
+    if (!window.confirm(`Delete environment variable "${key}"?`)) return
+    try {
+      await api.projects.envVars.delete(id, key)
+      setEnvVars((prev) => prev.filter((ev) => ev.key !== key))
+    } catch (err) {
+      setEnvError(err instanceof Error ? err.message : "Failed to delete env var")
+    }
+  }
+
+  function toggleReveal(key: string) {
+    setRevealedKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
   if (loading) return <p className="text-muted-foreground">Loading...</p>
   if (error) return <p className="text-destructive">{error}</p>
   if (!project) return <p className="text-muted-foreground">Project not found</p>
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "functions", label: "Functions" },
+    { key: "environment", label: "Environment" },
     { key: "settings", label: "Settings" },
   ]
 
@@ -131,6 +203,110 @@ export function ProjectDetail() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === "environment" && (
+        <div className="space-y-6">
+          {/* Add env var form */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Add Variable</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
+                <div className="flex-1 space-y-2">
+                  <Label htmlFor="env-key">Key</Label>
+                  <Input
+                    id="env-key"
+                    placeholder="e.g. API_KEY"
+                    value={newKey}
+                    onChange={(e) => setNewKey(e.target.value)}
+                  />
+                </div>
+                <div className="flex-1 space-y-2">
+                  <Label htmlFor="env-value">Value</Label>
+                  <Input
+                    id="env-value"
+                    placeholder="e.g. sk-abc123"
+                    type={newIsSecret ? "password" : "text"}
+                    value={newValue}
+                    onChange={(e) => setNewValue(e.target.value)}
+                  />
+                </div>
+                <div className="flex items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      checked={newIsSecret}
+                      onChange={(e) => setNewIsSecret(e.target.checked)}
+                    />
+                    Secret
+                  </label>
+                  <Button onClick={handleAddEnvVar} disabled={savingEnv || !newKey.trim()}>
+                    {savingEnv ? "Saving..." : "Add"}
+                  </Button>
+                </div>
+              </div>
+              {envError && (
+                <p className="mt-2 text-sm text-destructive">{envError}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Env vars table */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Variables ({envVars.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {envLoading ? (
+                <p className="text-muted-foreground">Loading...</p>
+              ) : envVars.length === 0 ? (
+                <p className="text-muted-foreground">
+                  No environment variables set. Variables you add here will be
+                  available to all functions in this project via os.environ.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {envVars.map((ev) => (
+                    <div
+                      key={ev.id}
+                      className="flex items-center gap-3 rounded-md border px-4 py-3"
+                    >
+                      <code className="min-w-35 font-mono text-sm font-semibold">
+                        {ev.key}
+                      </code>
+                      <span className="flex-1 truncate font-mono text-sm text-muted-foreground">
+                        {ev.is_secret && !revealedKeys.has(ev.key)
+                          ? "********"
+                          : ev.value}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        {ev.is_secret && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => toggleReveal(ev.key)}
+                          >
+                            {revealedKeys.has(ev.key) ? "Hide" : "Reveal"}
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteEnvVar(ev.key)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 
