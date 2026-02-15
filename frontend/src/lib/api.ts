@@ -109,6 +109,22 @@ export const api = {
 
     functions: (id: string) =>
       apiFetch<FunctionResponse[]>(`/api/projects/${id}/functions`),
+
+    envVars: {
+      list: (projectId: string) =>
+        apiFetch<EnvVarResponse[]>(`/api/projects/${projectId}/env`),
+
+      set: (projectId: string, data: EnvVarSet) =>
+        apiFetch<EnvVarResponse>(`/api/projects/${projectId}/env`, {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+
+      delete: (projectId: string, key: string) =>
+        apiFetch<{ detail: string }>(`/api/projects/${projectId}/env/${key}`, {
+          method: "DELETE",
+        }),
+    },
   },
 
   functions: {
@@ -189,6 +205,23 @@ export interface FunctionResponse {
   status: string
   created_at: string
   updated_at: string
+}
+
+/** What the backend returns when you fetch an env var. */
+export interface EnvVarResponse {
+  id: string
+  key: string
+  value: string
+  is_secret: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** What the backend expects when you set an env var. */
+export interface EnvVarSet {
+  key: string
+  value: string
+  is_secret?: boolean
 }
 
 /** What the backend expects when you create a new function. */
