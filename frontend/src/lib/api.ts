@@ -160,3 +160,21 @@ export interface InvocationResponse {
   duration_ms: number
   created_at: string
 }
+
+// --- Chat types ---
+
+/** A single message in the chat conversation. */
+export interface ChatMessage {
+  role: "user" | "assistant"
+  content: string
+}
+
+/** What the backend returns from the AI chat endpoint. */
+export interface ChatResponse {
+  response: string
+  tool_calls: Array<{
+    tool: string
+    args: Record<string, unknown>
+    result: Record<string, unknown>
+  }>
+}
