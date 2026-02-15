@@ -24,7 +24,7 @@ from app.auth import get_current_user
 from app.config import FRONTEND_URL
 from app.database import engine, get_db
 from app.models import Function, Invocation
-from app.routers import chat, env_vars, functions, invoke, projects
+from app.routers import chat, env_vars, functions, gateway, invoke, projects, routes
 
 
 def _run_migrations() -> None:
@@ -72,9 +72,11 @@ app.add_middleware(
 # Register routers - each adds a group of related endpoints
 app.include_router(projects.router)
 app.include_router(env_vars.router)
+app.include_router(routes.router)
 app.include_router(functions.router)
 app.include_router(invoke.router)
 app.include_router(chat.router)
+app.include_router(gateway.router)
 
 
 @app.get("/api/health")

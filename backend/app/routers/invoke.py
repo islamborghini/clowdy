@@ -77,7 +77,10 @@ async def invoke_function(
 
     # Step 4: Run the code in a Docker container
     result = await run_function(
-        code=fn.code, input_data=request.input, env_vars=env_vars
+        code=fn.code,
+        input_data=request.input,
+        env_vars=env_vars,
+        function_name=fn.name,
     )
 
     # Step 5: Save the invocation log
