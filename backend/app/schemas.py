@@ -106,6 +106,30 @@ class FunctionResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Environment variable schemas ---
+
+
+class EnvVarSet(BaseModel):
+    """Schema for creating or updating an environment variable."""
+
+    key: str
+    value: str
+    is_secret: bool = True
+
+
+class EnvVarResponse(BaseModel):
+    """Schema for env var data returned by the API. Secret values are masked."""
+
+    id: str
+    key: str
+    value: str
+    is_secret: bool
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Invocation schemas ---
 
 
