@@ -62,7 +62,9 @@ def _get_docker_client() -> docker.DockerClient:
     return docker.from_env()
 
 
-async def run_function(code: str, input_data: dict) -> dict:
+async def run_function(
+    code: str, input_data: dict, env_vars: dict[str, str] | None = None
+) -> dict:
     """
     Execute a user's function code inside a Docker container.
 
@@ -73,6 +75,9 @@ async def run_function(code: str, input_data: dict) -> dict:
     Args:
         code: The user's Python source code (must define a handler function)
         input_data: Dictionary of input data to pass to handler()
+        env_vars: Optional dict of environment variables to inject into the
+                  container. These come from the project's env var settings
+                  and are accessible via os.environ inside the function.
 
     Returns:
         A dict with keys:
@@ -82,7 +87,7 @@ async def run_function(code: str, input_data: dict) -> dict:
     """
     # Run the blocking Docker operations in a separate thread.
     # This prevents the async event loop from freezing while Docker works.
-    return await asyncio.to_thread(_run_in_container, code, input_data)
+    return await asyncio.to_thread(_run_in_container, code, input_data, env_vars)
 
 
 def _make_tar(filename: str, content: str) -> bytes:
@@ -103,7 +108,9 @@ def _make_tar(filename: str, content: str) -> bytes:
     return tarstream.read()
 
 
-def _run_in_container(code: str, input_data: dict) -> dict:
+def _run_in_container(
+    code: str, input_data: dict, env_vars: dict[str, str] | None = None
+) -> dict:
     """
     Synchronous function that does the actual Docker work.
 
@@ -124,6 +131,14 @@ def _run_in_container(code: str, input_data: dict) -> dict:
 
     container = None
     try:
+        # Build the environment dict: start with project env vars (if any),
+        # then add INPUT_JSON. Project env vars come first so they can't
+        # override INPUT_JSON (which is used by the runner).
+        container_env = {}
+        if env_vars:
+            container_env.update(env_vars)
+        container_env["INPUT_JSON"] = json.dumps(input_data)
+
         # Create the container in stopped state.
         # We need it stopped first so we can copy the code file in
         # before it starts running.
@@ -132,7 +147,7 @@ def _run_in_container(code: str, input_data: dict) -> dict:
         # nano_cpus: limit to 0.5 CPU cores (500 million nanocpus)
         container = client.containers.create(
             IMAGE_NAME,
-            environment={"INPUT_JSON": json.dumps(input_data)},
+            environment=container_env,
             network_disabled=True,
             mem_limit="128m",
             nano_cpus=500_000_000,
