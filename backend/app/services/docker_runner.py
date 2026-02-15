@@ -23,6 +23,7 @@ Usage:
 
 import asyncio
 import json
+import os
 import tempfile
 import time
 from pathlib import Path
@@ -37,6 +38,27 @@ IMAGE_NAME = "clowdy-python-runtime"
 
 # Maximum time (seconds) a function is allowed to run before being killed.
 TIMEOUT_SECONDS = 30
+
+
+def _get_docker_client() -> docker.DockerClient:
+    """
+    Create a Docker client, handling non-standard socket locations.
+
+    On macOS with Colima, the Docker socket is not at the default
+    /var/run/docker.sock. We check DOCKER_HOST env var first, then
+    try the Colima socket path, then fall back to the default.
+    """
+    # If DOCKER_HOST is set, the SDK will use it automatically
+    if os.environ.get("DOCKER_HOST"):
+        return docker.from_env()
+
+    # Check for Colima socket (common on macOS)
+    colima_sock = Path.home() / ".colima" / "default" / "docker.sock"
+    if colima_sock.exists():
+        return docker.DockerClient(base_url=f"unix://{colima_sock}")
+
+    # Fall back to default
+    return docker.from_env()
 
 
 async def run_function(code: str, input_data: dict) -> dict:
@@ -75,7 +97,7 @@ def _run_in_container(code: str, input_data: dict) -> dict:
     6. Clean up the container
     7. Return the result with timing info
     """
-    client = docker.from_env()
+    client = _get_docker_client()
     start_time = time.time()
 
     # Write the user's code to a temporary file.
