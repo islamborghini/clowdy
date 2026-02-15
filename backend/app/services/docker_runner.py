@@ -63,7 +63,10 @@ def _get_docker_client() -> docker.DockerClient:
 
 
 async def run_function(
-    code: str, input_data: dict, env_vars: dict[str, str] | None = None
+    code: str,
+    input_data: dict,
+    env_vars: dict[str, str] | None = None,
+    function_name: str = "unknown",
 ) -> dict:
     """
     Execute a user's function code inside a Docker container.
@@ -78,6 +81,8 @@ async def run_function(
         env_vars: Optional dict of environment variables to inject into the
                   container. These come from the project's env var settings
                   and are accessible via os.environ inside the function.
+        function_name: Name of the function, passed to the container as
+                       FUNCTION_NAME env var for use in handler(event, context).
 
     Returns:
         A dict with keys:
@@ -87,7 +92,9 @@ async def run_function(
     """
     # Run the blocking Docker operations in a separate thread.
     # This prevents the async event loop from freezing while Docker works.
-    return await asyncio.to_thread(_run_in_container, code, input_data, env_vars)
+    return await asyncio.to_thread(
+        _run_in_container, code, input_data, env_vars, function_name
+    )
 
 
 def _make_tar(filename: str, content: str) -> bytes:
@@ -109,7 +116,10 @@ def _make_tar(filename: str, content: str) -> bytes:
 
 
 def _run_in_container(
-    code: str, input_data: dict, env_vars: dict[str, str] | None = None
+    code: str,
+    input_data: dict,
+    env_vars: dict[str, str] | None = None,
+    function_name: str = "unknown",
 ) -> dict:
     """
     Synchronous function that does the actual Docker work.
@@ -138,6 +148,7 @@ def _run_in_container(
         if env_vars:
             container_env.update(env_vars)
         container_env["INPUT_JSON"] = json.dumps(input_data)
+        container_env["FUNCTION_NAME"] = function_name
 
         # Create the container in stopped state.
         # We need it stopped first so we can copy the code file in
