@@ -19,7 +19,7 @@ Models use SQLAlchemy 2.x modern syntax:
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, Text
+from sqlalchemy import ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -62,6 +62,9 @@ class Project(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
     functions: Mapped[list["Function"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    env_vars: Mapped[list["EnvVar"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
 
@@ -126,3 +129,33 @@ class Invocation(Base):
 
     # Reverse relationship: access the parent function from an invocation object.
     function: Mapped["Function"] = relationship(back_populates="invocations")
+
+
+class EnvVar(Base):
+    """
+    An environment variable belonging to a project.
+
+    When a function in this project is invoked, all the project's env vars
+    are injected into the Docker container as real environment variables.
+    Functions can read them with os.environ["KEY"].
+
+    The is_secret flag controls whether the value is masked in API responses.
+    The actual value is always stored in the database and used at runtime.
+    """
+
+    __tablename__ = "env_vars"
+    __table_args__ = (
+        UniqueConstraint("project_id", "key", name="uq_env_var_project_key"),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=generate_id)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id"), index=True
+    )
+    key: Mapped[str] = mapped_column()
+    value: Mapped[str] = mapped_column(Text)
+    is_secret: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="env_vars")
