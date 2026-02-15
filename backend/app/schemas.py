@@ -130,6 +130,42 @@ class EnvVarResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# --- Route schemas ---
+
+
+class RouteCreate(BaseModel):
+    """Schema for creating a new route."""
+
+    function_id: str
+    method: str
+    path: str
+    description: str = ""
+
+
+class RouteUpdate(BaseModel):
+    """Schema for updating a route. All fields optional."""
+
+    function_id: str | None = None
+    method: str | None = None
+    path: str | None = None
+    description: str | None = None
+
+
+class RouteResponse(BaseModel):
+    """Schema for route data returned by the API."""
+
+    id: str
+    project_id: str
+    function_id: str
+    method: str
+    path: str
+    description: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # --- Invocation schemas ---
 
 
@@ -153,6 +189,9 @@ class InvocationResponse(BaseModel):
     output: str
     status: str
     duration_ms: int
+    source: str = "direct"
+    http_method: str | None = None
+    http_path: str | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
