@@ -1,31 +1,27 @@
 /**
  * Dashboard page - the home screen of Clowdy.
  *
- * Shows overview stats: backend connection status, total functions count,
- * and total invocations. On mount, it pings the backend health endpoint
- * and fetches the function list to display live data.
+ * Shows overview stats fetched from GET /api/stats: backend connection
+ * status, total functions, total invocations, success rate, and average
+ * execution duration. All numbers are real data from the database.
  */
 import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { api } from "@/lib/api"
+import { api, type StatsResponse } from "@/lib/api"
 
 export function Dashboard() {
   const [backendStatus, setBackendStatus] = useState<string>("checking...")
-  const [functionCount, setFunctionCount] = useState(0)
+  const [stats, setStats] = useState<StatsResponse | null>(null)
 
-  // useEffect with [] runs once when the component first renders (on mount).
-  // We use it to fetch initial data from the backend.
   useEffect(() => {
-    // Check if the backend is running by calling the health endpoint
     api
       .health()
       .then(() => setBackendStatus("connected"))
       .catch(() => setBackendStatus("offline"))
 
-    // Fetch all functions to show the count
-    api.functions
-      .list()
-      .then((fns) => setFunctionCount(fns.length))
+    api
+      .stats()
+      .then(setStats)
       .catch(() => {})
   }, [])
 
@@ -33,8 +29,7 @@ export function Dashboard() {
     <div>
       <h2 className="mb-6 text-3xl font-bold">Dashboard</h2>
 
-      {/* Stats cards in a responsive 3-column grid */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -43,7 +38,11 @@ export function Dashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-lg font-bold">
-              {backendStatus === "connected" ? "Connected" : backendStatus === "offline" ? "Offline" : "Checking..."}
+              {backendStatus === "connected"
+                ? "Connected"
+                : backendStatus === "offline"
+                  ? "Offline"
+                  : "Checking..."}
             </p>
           </CardContent>
         </Card>
@@ -55,7 +54,9 @@ export function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">{functionCount}</p>
+            <p className="text-3xl font-bold">
+              {stats?.total_functions ?? "-"}
+            </p>
           </CardContent>
         </Card>
 
@@ -66,7 +67,29 @@ export function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-3xl font-bold">0</p>
+            <p className="text-3xl font-bold">
+              {stats?.total_invocations ?? "-"}
+            </p>
+            {stats && stats.total_invocations > 0 && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {stats.success_rate}% success rate
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm font-medium text-muted-foreground">
+              Avg Duration
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-3xl font-bold">
+              {stats && stats.total_invocations > 0
+                ? `${stats.avg_duration_ms}ms`
+                : "-"}
+            </p>
           </CardContent>
         </Card>
       </div>
