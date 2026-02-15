@@ -85,6 +85,32 @@ export const api = {
       body: JSON.stringify({ messages }),
     }),
 
+  projects: {
+    list: () => apiFetch<ProjectResponse[]>("/api/projects"),
+
+    get: (id: string) => apiFetch<ProjectResponse>(`/api/projects/${id}`),
+
+    create: (data: ProjectCreate) =>
+      apiFetch<ProjectResponse>("/api/projects", {
+        method: "POST",
+        body: JSON.stringify(data),
+      }),
+
+    update: (id: string, data: Partial<ProjectCreate>) =>
+      apiFetch<ProjectResponse>(`/api/projects/${id}`, {
+        method: "PUT",
+        body: JSON.stringify(data),
+      }),
+
+    delete: (id: string) =>
+      apiFetch<{ detail: string }>(`/api/projects/${id}`, {
+        method: "DELETE",
+      }),
+
+    functions: (id: string) =>
+      apiFetch<FunctionResponse[]>(`/api/projects/${id}/functions`),
+  },
+
   functions: {
     /** Fetch all functions for the current user, newest first. */
     list: () => apiFetch<FunctionResponse[]>("/api/functions"),
@@ -134,6 +160,24 @@ export const api = {
 // ----- Types -----
 // These interfaces mirror the Pydantic schemas on the backend (backend/app/schemas.py).
 // Keeping them in sync ensures the frontend and backend agree on data shapes.
+
+/** What the backend returns when you fetch a project. */
+export interface ProjectResponse {
+  id: string
+  name: string
+  slug: string
+  description: string
+  status: string
+  function_count: number
+  created_at: string
+  updated_at: string
+}
+
+/** What the backend expects when you create a new project. */
+export interface ProjectCreate {
+  name: string
+  description?: string
+}
 
 /** What the backend returns when you fetch a function. */
 export interface FunctionResponse {
