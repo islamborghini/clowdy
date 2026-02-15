@@ -55,10 +55,21 @@ export async function apiFetch<T>(
  *   api.functions.delete("abc123")        - Delete a function
  *   api.functions.invoke("abc123", {...}) - Invoke a function
  *   api.functions.invocations("abc123")   - Get invocation logs
+ *   api.chat([...messages])              - Chat with the AI agent
  */
 export const api = {
   /** Ping the backend to check if it's running. Returns { status: "ok" }. */
   health: () => apiFetch<{ status: string }>("/api/health"),
+
+  /**
+   * Send a message to the AI agent. Pass the full conversation history
+   * so the AI has context of previous messages.
+   */
+  chat: (messages: ChatMessage[]) =>
+    apiFetch<ChatResponse>("/api/chat", {
+      method: "POST",
+      body: JSON.stringify({ messages }),
+    }),
 
   functions: {
     /** Fetch all functions for the current user, newest first. */
