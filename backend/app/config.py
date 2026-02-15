@@ -19,3 +19,8 @@ DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./clowdy.db")
 # CORS is a browser security feature that blocks requests from one origin
 # (e.g. localhost:5173) to another (e.g. localhost:8000) unless explicitly allowed.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+# Groq API key for the AI agent.
+# Get a free key at https://console.groq.com/keys
+# Set it in your environment: export GROQ_API_KEY="gsk_..."
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
