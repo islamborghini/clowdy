@@ -30,8 +30,8 @@ from groq import Groq
 from app.config import GROQ_API_KEY
 
 
-# The model to use. Llama 3.3 70B is free on Groq and supports tool calling.
-MODEL = "llama-3.3-70b-versatile"
+# The model to use. Llama 4 Scout supports tool calling reliably on Groq.
+MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
 # System prompt that tells the AI who it is and how to behave.
 SYSTEM_PROMPT = """You are Clowdy, an AI assistant for a serverless function platform.
