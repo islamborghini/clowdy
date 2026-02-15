@@ -1,4 +1,4 @@
-,-/**
+/**
  * Create Function page.
  *
  * Provides a form with name, description, and a Monaco code editor
