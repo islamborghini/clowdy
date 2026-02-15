@@ -6,12 +6,10 @@ Alembic uses this file to know how to connect to the database
 and which models to compare against when generating migrations.
 """
 
-import asyncio
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import pool
-from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy import create_engine, pool
 
 from app.config import DATABASE_URL
 from app.models import Base
@@ -20,7 +18,9 @@ config = context.config
 
 # Override the sqlalchemy.url from alembic.ini with our app's config
 # so we have a single source of truth for the database URL.
-config.set_main_option("sqlalchemy.url", DATABASE_URL)
+# Strip the async driver prefix since Alembic runs synchronously.
+_sync_url = DATABASE_URL.replace("+aiosqlite", "")
+config.set_main_option("sqlalchemy.url", _sync_url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
@@ -44,30 +44,24 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def do_run_migrations(connection) -> None:
-    """Run migrations with a live database connection."""
-    context.configure(connection=connection, target_metadata=target_metadata)
-    with context.begin_transaction():
-        context.run_migrations()
+def run_migrations_online() -> None:
+    """Run migrations with a sync database connection.
 
-
-async def run_async_migrations() -> None:
-    """Create an async engine and run migrations."""
-    connectable = async_engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
+    Uses a plain synchronous engine since Alembic is synchronous.
+    This avoids issues with asyncio.run() failing when called from
+    within FastAPI's already-running async event loop.
+    """
+    connectable = create_engine(
+        config.get_main_option("sqlalchemy.url"),
         poolclass=pool.NullPool,
     )
 
-    async with connectable.connect() as connection:
-        await connection.run_sync(do_run_migrations)
+    with connectable.connect() as connection:
+        context.configure(connection=connection, target_metadata=target_metadata)
+        with context.begin_transaction():
+            context.run_migrations()
 
-    await connectable.dispose()
-
-
-def run_migrations_online() -> None:
-    """Run migrations with a live async database connection."""
-    asyncio.run(run_async_migrations())
+    connectable.dispose()
 
 
 if context.is_offline_mode():

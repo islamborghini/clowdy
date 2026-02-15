@@ -7,7 +7,7 @@
  * Also provides an AuthGuard that redirects unauthenticated users to
  * the Clerk sign-in page.
  */
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import {
   ClerkProvider,
   SignIn,
@@ -24,13 +24,19 @@ const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 /**
  * Inner component that bridges Clerk's useAuth hook with our auth.ts module.
  * Must be rendered inside ClerkProvider.
+ *
+ * Uses a ref to avoid stale closures: when Clerk finishes loading, the
+ * getToken reference changes. A ref ensures the wrapper always calls the
+ * latest version, even if child effects fire before this component's effect.
  */
 function TokenInjector({ children }: { children: React.ReactNode }) {
   const { getToken } = useAuth()
+  const getTokenRef = useRef(getToken)
+  getTokenRef.current = getToken
 
   useEffect(() => {
-    setTokenGetter(getToken)
-  }, [getToken])
+    setTokenGetter(() => getTokenRef.current())
+  }, [])
 
   return <>{children}</>
 }
