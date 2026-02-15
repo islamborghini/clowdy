@@ -53,6 +53,8 @@ export async function apiFetch<T>(
  *   api.functions.get("abc123")           - Get a specific function
  *   api.functions.update("abc123", {...}) - Update a function
  *   api.functions.delete("abc123")        - Delete a function
+ *   api.functions.invoke("abc123", {...}) - Invoke a function
+ *   api.functions.invocations("abc123")   - Get invocation logs
  */
 export const api = {
   /** Ping the backend to check if it's running. Returns { status: "ok" }. */

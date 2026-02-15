@@ -51,8 +51,9 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers (including Content-Type, Authorization)
 )
 
-# Register the functions router - this adds all the /api/functions/* endpoints
+# Register routers - each adds a group of related endpoints
 app.include_router(functions.router)
+app.include_router(invoke.router)
 
 
 @app.get("/api/health")
