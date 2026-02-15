@@ -67,6 +67,9 @@ class Project(Base):
     env_vars: Mapped[list["EnvVar"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
+    routes: Mapped[list["Route"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
 
 
 class Function(Base):
@@ -94,6 +97,9 @@ class Function(Base):
 
     project: Mapped["Project | None"] = relationship(back_populates="functions")
     invocations: Mapped[list["Invocation"]] = relationship(
+        back_populates="function", cascade="all, delete-orphan"
+    )
+    routes: Mapped[list["Route"]] = relationship(
         back_populates="function", cascade="all, delete-orphan"
     )
 
@@ -125,6 +131,9 @@ class Invocation(Base):
     output: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(default="pending")
     duration_ms: Mapped[int] = mapped_column(default=0)
+    source: Mapped[str] = mapped_column(default="direct")
+    http_method: Mapped[str | None] = mapped_column(default=None)
+    http_path: Mapped[str | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
 
     # Reverse relationship: access the parent function from an invocation object.
@@ -159,3 +168,37 @@ class EnvVar(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
     project: Mapped["Project"] = relationship(back_populates="env_vars")
+
+
+class Route(Base):
+    """
+    An HTTP route that maps a method + path pattern to a function.
+
+    When an external request hits the gateway endpoint, we match it
+    against routes in the project to find which function to invoke.
+    Path patterns support named parameters like /users/:id which
+    extract values from the URL (e.g., /users/123 -> {"id": "123"}).
+    """
+
+    __tablename__ = "routes"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "method", "path", name="uq_route_project_method_path"
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(primary_key=True, default=generate_id)
+    project_id: Mapped[str] = mapped_column(
+        ForeignKey("projects.id"), index=True
+    )
+    function_id: Mapped[str] = mapped_column(
+        ForeignKey("functions.id"), index=True
+    )
+    method: Mapped[str] = mapped_column()
+    path: Mapped[str] = mapped_column()
+    description: Mapped[str] = mapped_column(default="")
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+    project: Mapped["Project"] = relationship(back_populates="routes")
+    function: Mapped["Function"] = relationship(back_populates="routes")
