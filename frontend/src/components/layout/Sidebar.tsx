@@ -12,6 +12,7 @@ import { UserButton } from "@clerk/clerk-react"
 // To add a new page, just add an entry here.
 const navItems = [
   { to: "/", label: "Dashboard" },
+  { to: "/projects", label: "Projects" },
   { to: "/functions", label: "Functions" },
 ]
 

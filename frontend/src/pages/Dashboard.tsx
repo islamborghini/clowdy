@@ -6,12 +6,15 @@
  * execution duration. All numbers are real data from the database.
  */
 import { useEffect, useState } from "react"
+import { Link } from "react-router"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { api, type StatsResponse } from "@/lib/api"
+import { ProjectCard } from "@/components/projects/ProjectCard"
+import { api, type StatsResponse, type ProjectResponse } from "@/lib/api"
 
 export function Dashboard() {
   const [backendStatus, setBackendStatus] = useState<string>("checking...")
   const [stats, setStats] = useState<StatsResponse | null>(null)
+  const [recentProjects, setRecentProjects] = useState<ProjectResponse[]>([])
 
   useEffect(() => {
     api
@@ -22,6 +25,11 @@ export function Dashboard() {
     api
       .stats()
       .then(setStats)
+      .catch(() => {})
+
+    api.projects
+      .list()
+      .then((projects) => setRecentProjects(projects.slice(0, 3)))
       .catch(() => {})
   }, [])
 
@@ -93,6 +101,23 @@ export function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Recent Projects */}
+      {recentProjects.length > 0 && (
+        <div className="mt-8">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-lg font-semibold">Recent Projects</h3>
+            <Link to="/projects" className="text-sm text-muted-foreground hover:text-foreground">
+              View all
+            </Link>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            {recentProjects.map((project) => (
+              <ProjectCard key={project.id} project={project} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

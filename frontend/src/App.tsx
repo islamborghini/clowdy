@@ -19,6 +19,9 @@ import { BrowserRouter, Routes, Route } from "react-router"
 import { AuthProvider, AuthGuard, SignIn, SignUp } from "@/components/auth/AuthProvider"
 import { Layout } from "@/components/layout/Layout"
 import { Dashboard } from "@/pages/Dashboard"
+import { Projects } from "@/pages/Projects"
+import { CreateProject } from "@/pages/CreateProject"
+import { ProjectDetail } from "@/pages/ProjectDetail"
 import { Functions } from "@/pages/Functions"
 import { CreateFunction } from "@/pages/CreateFunction"
 import { FunctionDetail } from "@/pages/FunctionDetail"
@@ -55,6 +58,10 @@ function App() {
             }
           >
             <Route path="/" element={<Dashboard />} />
+            <Route path="/projects" element={<Projects />} />
+            <Route path="/projects/new" element={<CreateProject />} />
+            <Route path="/projects/:id" element={<ProjectDetail />} />
+            <Route path="/projects/:id/functions/new" element={<CreateFunction />} />
             <Route path="/functions" element={<Functions />} />
             <Route path="/functions/new" element={<CreateFunction />} />
             <Route path="/functions/:id" element={<FunctionDetail />} />
