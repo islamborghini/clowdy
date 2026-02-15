@@ -125,6 +125,34 @@ export const api = {
           method: "DELETE",
         }),
     },
+
+    routes: {
+      list: (projectId: string) =>
+        apiFetch<RouteResponse[]>(`/api/projects/${projectId}/routes`),
+
+      create: (projectId: string, data: RouteCreate) =>
+        apiFetch<RouteResponse>(`/api/projects/${projectId}/routes`, {
+          method: "POST",
+          body: JSON.stringify(data),
+        }),
+
+      update: (projectId: string, routeId: string, data: RouteUpdate) =>
+        apiFetch<RouteResponse>(
+          `/api/projects/${projectId}/routes/${routeId}`,
+          {
+            method: "PUT",
+            body: JSON.stringify(data),
+          }
+        ),
+
+      delete: (projectId: string, routeId: string) =>
+        apiFetch<{ detail: string }>(
+          `/api/projects/${projectId}/routes/${routeId}`,
+          {
+            method: "DELETE",
+          }
+        ),
+    },
   },
 
   functions: {
@@ -224,6 +252,34 @@ export interface EnvVarSet {
   is_secret?: boolean
 }
 
+/** What the backend returns when you fetch a route. */
+export interface RouteResponse {
+  id: string
+  project_id: string
+  function_id: string
+  method: string
+  path: string
+  description: string
+  created_at: string
+  updated_at: string
+}
+
+/** What the backend expects when you create a new route. */
+export interface RouteCreate {
+  function_id: string
+  method: string
+  path: string
+  description?: string
+}
+
+/** What the backend expects when you update a route. */
+export interface RouteUpdate {
+  function_id?: string
+  method?: string
+  path?: string
+  description?: string
+}
+
 /** What the backend expects when you create a new function. */
 export interface FunctionCreate {
   name: string
@@ -250,6 +306,9 @@ export interface InvocationResponse {
   output: string
   status: string
   duration_ms: number
+  source: string
+  http_method: string | null
+  http_path: string | null
   created_at: string
 }
 
