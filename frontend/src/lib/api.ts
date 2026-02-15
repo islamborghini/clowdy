@@ -4,7 +4,12 @@
  * This module provides a typed wrapper around the browser's fetch API.
  * All requests go to the backend server (default: http://localhost:8000).
  * You can override the URL by setting VITE_API_URL in a .env file.
+ *
+ * Authentication: The Clerk JWT token is automatically included in the
+ * Authorization header via the auth.ts token provider.
  */
+
+import { getAuthToken } from "./auth"
 
 // Read the backend URL from environment variables, falling back to localhost.
 // "import.meta.env" is Vite's way of accessing env vars (similar to process.env in Node).
@@ -13,9 +18,8 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
 /**
  * Generic fetch wrapper that handles JSON requests/responses and errors.
  *
- * The <T> is a TypeScript generic - it lets callers specify what type the
- * response JSON will be. For example: apiFetch<{ status: string }>("/api/health")
- * tells TypeScript the response has a "status" field that is a string.
+ * Automatically includes the Clerk JWT token in the Authorization header
+ * if the user is signed in.
  *
  * @param path - The API endpoint path (e.g. "/api/functions")
  * @param options - Standard fetch options (method, body, headers, etc.)
@@ -26,9 +30,16 @@ export async function apiFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  const token = await getAuthToken()
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+
   const res = await fetch(`${API_URL}${path}`, {
-    // Default to JSON content type, but allow overriding via options.headers
-    headers: { "Content-Type": "application/json", ...options?.headers },
+    headers: { ...headers, ...(options?.headers as Record<string, string>) },
     ...options,
   })
 

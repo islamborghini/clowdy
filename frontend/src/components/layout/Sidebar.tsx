@@ -3,8 +3,10 @@
  *
  * Renders a vertical sidebar with links to the main sections of the app.
  * Uses React Router's NavLink which automatically highlights the active route.
+ * Shows the Clerk UserButton at the bottom for account management / sign out.
  */
 import { NavLink } from "react-router"
+import { UserButton } from "@clerk/clerk-react"
 
 // Define navigation items as data so we can loop over them.
 // To add a new page, just add an entry here.
@@ -45,8 +47,17 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="border-t p-4 text-xs text-muted-foreground">
-        Clowdy v0.1.0
+      {/* User account section */}
+      <div className="border-t p-4">
+        <UserButton
+          afterSignOutUrl="/sign-in"
+          appearance={{
+            elements: {
+              rootBox: "w-full",
+              userButtonTrigger: "w-full justify-start",
+            },
+          }}
+        />
       </div>
     </aside>
   )

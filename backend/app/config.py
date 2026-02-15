@@ -1,12 +1,20 @@
 """
 Application configuration.
 
-Settings are loaded from environment variables with sensible defaults
-for local development. In production, you'd set these via .env file or
-your hosting platform's environment variable settings.
+Settings are loaded from a .env.local file (if it exists) and environment
+variables. Environment variables take precedence over the file.
+
+For local development, create backend/.env.local with your API keys.
 """
 
 import os
+from pathlib import Path
+
+from dotenv import load_dotenv
+
+# Load .env.local from the backend directory (one level up from app/)
+_backend_dir = Path(__file__).resolve().parent.parent
+load_dotenv(_backend_dir / ".env.local")
 
 # SQLite database URL using the async aiosqlite driver.
 # Format: "sqlite+aiosqlite:///./filename.db"

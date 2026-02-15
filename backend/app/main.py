@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth import get_current_user
 from app.config import FRONTEND_URL
 from app.database import engine, get_db
 from app.models import Function, Invocation
@@ -81,25 +82,33 @@ async def health():
 
 
 @app.get("/api/stats")
-async def stats(db: AsyncSession = Depends(get_db)):
+async def stats(
+    user_id: str = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     """
     Dashboard statistics endpoint.
 
     Returns aggregate numbers for the dashboard: total functions,
     total invocations, success count, and average duration.
-    All computed with SQL COUNT/AVG so it's fast even with lots of data.
+    Filtered to the authenticated user's functions only.
     """
-    # Count total functions
-    fn_result = await db.execute(select(func.count()).select_from(Function))
+    # Count total functions for this user
+    fn_result = await db.execute(
+        select(func.count()).select_from(Function).where(Function.user_id == user_id)
+    )
     total_functions = fn_result.scalar() or 0
 
-    # Count total invocations and successes, average duration
+    # Count total invocations and successes, average duration (for this user's functions)
     inv_result = await db.execute(
         select(
             func.count(),
             func.count().filter(Invocation.status == "success"),
             func.avg(Invocation.duration_ms),
-        ).select_from(Invocation)
+        )
+        .select_from(Invocation)
+        .join(Function)
+        .where(Function.user_id == user_id)
     )
     row = inv_result.one()
     total_invocations = row[0] or 0
