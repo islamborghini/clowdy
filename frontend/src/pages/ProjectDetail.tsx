@@ -17,9 +17,12 @@ import {
   type ProjectResponse,
   type FunctionResponse,
   type EnvVarResponse,
+  type RouteResponse,
 } from "@/lib/api"
 
-type Tab = "functions" | "environment" | "settings"
+const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
+
+type Tab = "functions" | "routes" | "environment" | "settings"
 
 export function ProjectDetail() {
   const { id } = useParams()
@@ -42,6 +45,15 @@ export function ProjectDetail() {
   const [savingEnv, setSavingEnv] = useState(false)
   const [revealedKeys, setRevealedKeys] = useState<Set<string>>(new Set())
 
+  // Routes state
+  const [routes, setRoutes] = useState<RouteResponse[]>([])
+  const [routesLoading, setRoutesLoading] = useState(false)
+  const [routesError, setRoutesError] = useState("")
+  const [newRouteMethod, setNewRouteMethod] = useState("GET")
+  const [newRoutePath, setNewRoutePath] = useState("")
+  const [newRouteFunctionId, setNewRouteFunctionId] = useState("")
+  const [savingRoute, setSavingRoute] = useState(false)
+
   useEffect(() => {
     if (!id) return
     Promise.all([api.projects.get(id), api.projects.functions(id)])
@@ -63,6 +75,52 @@ export function ProjectDetail() {
       .catch((err) => setEnvError(err.message))
       .finally(() => setEnvLoading(false))
   }, [activeTab, id])
+
+  // Load routes when the routes tab is activated
+  useEffect(() => {
+    if (activeTab !== "routes" || !id) return
+    setRoutesLoading(true)
+    api.projects.routes
+      .list(id)
+      .then(setRoutes)
+      .catch((err) => setRoutesError(err.message))
+      .finally(() => setRoutesLoading(false))
+  }, [activeTab, id])
+
+  async function handleAddRoute() {
+    if (!id || !newRoutePath.trim() || !newRouteFunctionId) return
+    setSavingRoute(true)
+    setRoutesError("")
+    try {
+      const created = await api.projects.routes.create(id, {
+        method: newRouteMethod,
+        path: newRoutePath.trim(),
+        function_id: newRouteFunctionId,
+      })
+      setRoutes((prev) => [...prev, created])
+      setNewRoutePath("")
+      setNewRouteFunctionId("")
+    } catch (err) {
+      setRoutesError(
+        err instanceof Error ? err.message : "Failed to create route"
+      )
+    } finally {
+      setSavingRoute(false)
+    }
+  }
+
+  async function handleDeleteRoute(routeId: string) {
+    if (!id) return
+    if (!window.confirm("Delete this route?")) return
+    try {
+      await api.projects.routes.delete(id, routeId)
+      setRoutes((prev) => prev.filter((r) => r.id !== routeId))
+    } catch (err) {
+      setRoutesError(
+        err instanceof Error ? err.message : "Failed to delete route"
+      )
+    }
+  }
 
   async function handleDelete() {
     if (!id || !project) return
@@ -133,6 +191,7 @@ export function ProjectDetail() {
 
   const tabs: { key: Tab; label: string }[] = [
     { key: "functions", label: "Functions" },
+    { key: "routes", label: "Routes" },
     { key: "environment", label: "Environment" },
     { key: "settings", label: "Settings" },
   ]
@@ -203,6 +262,132 @@ export function ProjectDetail() {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {activeTab === "routes" && (
+        <div className="space-y-6">
+          {/* Add route form */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Add Route</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-4">
+                <div className="flex gap-3 items-end">
+                  <div className="w-28 space-y-2">
+                    <Label htmlFor="route-method">Method</Label>
+                    <select
+                      id="route-method"
+                      value={newRouteMethod}
+                      onChange={(e) => setNewRouteMethod(e.target.value)}
+                      className="flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm"
+                    >
+                      {["GET", "POST", "PUT", "DELETE", "PATCH", "ANY"].map(
+                        (m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        )
+                      )}
+                    </select>
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <Label htmlFor="route-path">Path</Label>
+                    <Input
+                      id="route-path"
+                      placeholder="/users/:id"
+                      value={newRoutePath}
+                      onChange={(e) => setNewRoutePath(e.target.value)}
+                    />
+                  </div>
+                  <div className="flex-1 space-y-2">
+                    <Label htmlFor="route-function">Function</Label>
+                    <select
+                      id="route-function"
+                      value={newRouteFunctionId}
+                      onChange={(e) => setNewRouteFunctionId(e.target.value)}
+                      className="flex h-9 w-full rounded-md border bg-transparent px-3 py-1 text-sm"
+                    >
+                      <option value="">Select a function...</option>
+                      {functions.map((fn) => (
+                        <option key={fn.id} value={fn.id}>
+                          {fn.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <Button
+                    onClick={handleAddRoute}
+                    disabled={
+                      savingRoute ||
+                      !newRoutePath.trim() ||
+                      !newRouteFunctionId
+                    }
+                  >
+                    {savingRoute ? "Adding..." : "Add"}
+                  </Button>
+                </div>
+              </div>
+              {routesError && (
+                <p className="mt-2 text-sm text-destructive">{routesError}</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Routes list */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Routes ({routes.length})</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {routesLoading ? (
+                <p className="text-muted-foreground">Loading...</p>
+              ) : routes.length === 0 ? (
+                <p className="text-muted-foreground">
+                  No routes configured. Add a route to expose your functions as
+                  HTTP endpoints via the gateway.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {routes.map((route) => {
+                    const fn = functions.find(
+                      (f) => f.id === route.function_id
+                    )
+                    const gatewayUrl = `${API_URL}/api/gateway/${project?.slug}${route.path}`
+                    return (
+                      <div
+                        key={route.id}
+                        className="flex items-center gap-3 rounded-md border px-4 py-3"
+                      >
+                        <Badge
+                          variant="outline"
+                          className="min-w-16 justify-center font-mono text-xs"
+                        >
+                          {route.method}
+                        </Badge>
+                        <code className="text-sm font-mono">{route.path}</code>
+                        <span className="text-sm text-muted-foreground">
+                          {fn?.name || "unknown"}
+                        </span>
+                        <span className="flex-1 truncate font-mono text-xs text-muted-foreground">
+                          {gatewayUrl}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => handleDeleteRoute(route.id)}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       )}
 
