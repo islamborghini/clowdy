@@ -2,7 +2,8 @@
  * Function Detail page.
  *
  * Displays a single function's metadata, source code (in a Monaco editor),
- * and its invoke URL. Supports editing the code and deleting the function.
+ * and its invoke URL. Supports editing the code, deleting the function,
+ * testing the function with a JSON input, and viewing invocation logs.
  *
  * The function ID comes from the URL parameter (e.g. /functions/abc123).
  */
@@ -14,7 +15,11 @@ import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { CodeEditor } from "@/components/functions/CodeEditor"
-import { api, type FunctionResponse } from "@/lib/api"
+import {
+  api,
+  type FunctionResponse,
+  type InvocationResponse,
+} from "@/lib/api"
 
 export function FunctionDetail() {
   const { id } = useParams()
@@ -31,7 +36,17 @@ export function FunctionDetail() {
   const [editCode, setEditCode] = useState("")
   const [saving, setSaving] = useState(false)
 
-  // The URL users will call to invoke this function (won't work until Step 3)
+  // Invoke/test state
+  const [testInput, setTestInput] = useState("{}")
+  const [invoking, setInvoking] = useState(false)
+  const [invokeResult, setInvokeResult] = useState<string | null>(null)
+  const [invokeError, setInvokeError] = useState("")
+
+  // Invocation logs state
+  const [invocations, setInvocations] = useState<InvocationResponse[]>([])
+  const [logsLoading, setLogsLoading] = useState(false)
+
+  // The URL users will call to invoke this function
   const invokeUrl = `http://localhost:8000/api/invoke/${id}`
 
   // Fetch function data on mount
@@ -47,6 +62,21 @@ export function FunctionDetail() {
       })
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
+  }, [id])
+
+  // Fetch invocation logs on mount and after each invocation
+  function loadInvocations() {
+    if (!id) return
+    setLogsLoading(true)
+    api.functions
+      .invocations(id)
+      .then(setInvocations)
+      .catch(() => {})
+      .finally(() => setLogsLoading(false))
+  }
+
+  useEffect(() => {
+    loadInvocations()
   }, [id])
 
   /** Enter edit mode - populate form fields with current values. */
@@ -87,6 +117,39 @@ export function FunctionDetail() {
       navigate("/functions")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete")
+    }
+  }
+
+  /** Invoke the function with the test input JSON. */
+  async function handleInvoke() {
+    if (!id) return
+    setInvoking(true)
+    setInvokeResult(null)
+    setInvokeError("")
+
+    // Parse the test input - must be valid JSON
+    let parsedInput: Record<string, unknown>
+    try {
+      parsedInput = JSON.parse(testInput)
+    } catch {
+      setInvokeError("Invalid JSON input")
+      setInvoking(false)
+      return
+    }
+
+    try {
+      const result = await api.functions.invoke(id, parsedInput)
+      if (result.success) {
+        setInvokeResult(JSON.stringify(result.output, null, 2))
+      } else {
+        setInvokeError(result.error || "Function returned an error")
+      }
+      // Refresh the invocation logs after running
+      loadInvocations()
+    } catch (err) {
+      setInvokeError(err instanceof Error ? err.message : "Failed to invoke")
+    } finally {
+      setInvoking(false)
     }
   }
 
@@ -171,18 +234,57 @@ export function FunctionDetail() {
           </CardContent>
         </Card>
 
-        {/* Invoke URL - users can copy this to call the function */}
+        {/* Invoke URL and test panel */}
         <Card>
           <CardHeader>
-            <CardTitle>Invoke URL</CardTitle>
+            <CardTitle>Invoke</CardTitle>
           </CardHeader>
-          <CardContent>
-            <code className="block rounded bg-muted p-3 text-sm">
-              POST {invokeUrl}
-            </code>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Send a POST request with a JSON body to invoke this function.
-            </p>
+          <CardContent className="space-y-4">
+            <div>
+              <code className="block rounded bg-muted p-3 text-sm">
+                POST {invokeUrl}
+              </code>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Send a POST request with a JSON body to invoke this function.
+              </p>
+            </div>
+
+            {/* Test panel - type JSON input and run the function */}
+            <div className="space-y-2">
+              <Label htmlFor="test-input">Test Input (JSON)</Label>
+              <Input
+                id="test-input"
+                value={testInput}
+                onChange={(e) => setTestInput(e.target.value)}
+                placeholder='{"name": "World"}'
+                className="font-mono text-sm"
+              />
+              <Button
+                onClick={handleInvoke}
+                disabled={invoking}
+                size="sm"
+              >
+                {invoking ? "Running..." : "Run Function"}
+              </Button>
+            </div>
+
+            {/* Show invoke result or error */}
+            {invokeResult && (
+              <div className="space-y-1">
+                <p className="text-sm font-medium">Result:</p>
+                <pre className="rounded bg-muted p-3 text-sm whitespace-pre-wrap">
+                  {invokeResult}
+                </pre>
+              </div>
+            )}
+            {invokeError && (
+              <div className="space-y-1">
+                <p className="text-sm font-medium text-destructive">Error:</p>
+                <pre className="rounded bg-destructive/10 p-3 text-sm text-destructive whitespace-pre-wrap">
+                  {invokeError}
+                </pre>
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -202,19 +304,77 @@ export function FunctionDetail() {
           </CardContent>
         </Card>
 
-        {/* Invocation logs placeholder - will show real data after Step 3 */}
+        {/* Invocation logs - real data from the backend */}
         <Card>
           <CardHeader>
             <CardTitle>Invocation Logs</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm text-muted-foreground">
-              No invocations yet. Logs will appear here once you invoke the
-              function (available after the execution engine is built).
-            </p>
+            {logsLoading ? (
+              <p className="text-sm text-muted-foreground">Loading logs...</p>
+            ) : invocations.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No invocations yet. Use the test panel above or send a POST
+                request to the invoke URL.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {invocations.map((inv) => (
+                  <div
+                    key={inv.id}
+                    className="rounded border p-3 text-sm"
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            inv.status === "success" ? "default" : "destructive"
+                          }
+                        >
+                          {inv.status}
+                        </Badge>
+                        <span className="text-muted-foreground">
+                          {inv.duration_ms}ms
+                        </span>
+                      </div>
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(inv.created_at).toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="grid gap-2 md:grid-cols-2">
+                      <div>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">
+                          Input
+                        </p>
+                        <pre className="rounded bg-muted p-2 text-xs whitespace-pre-wrap">
+                          {formatJson(inv.input)}
+                        </pre>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-xs font-medium text-muted-foreground">
+                          Output
+                        </p>
+                        <pre className="rounded bg-muted p-2 text-xs whitespace-pre-wrap">
+                          {formatJson(inv.output)}
+                        </pre>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
     </div>
   )
+}
+
+/** Pretty-print a JSON string. If it's not valid JSON, return as-is. */
+function formatJson(str: string): string {
+  try {
+    return JSON.stringify(JSON.parse(str), null, 2)
+  } catch {
+    return str
+  }
 }
