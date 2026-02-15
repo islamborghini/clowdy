@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Function, Invocation
+from app.models import EnvVar, Function, Invocation
 from app.schemas import InvokeRequest, InvocationResponse
 from app.services.docker_runner import run_function
 
@@ -65,10 +65,22 @@ async def invoke_function(
             detail=f"Function is not active (status: {fn.status})",
         )
 
-    # Step 3: Run the code in a Docker container
-    result = await run_function(code=fn.code, input_data=request.input)
+    # Step 3: Fetch project env vars (if this function belongs to a project)
+    env_vars = None
+    if fn.project_id:
+        ev_result = await db.execute(
+            select(EnvVar).where(EnvVar.project_id == fn.project_id)
+        )
+        env_var_rows = ev_result.scalars().all()
+        if env_var_rows:
+            env_vars = {ev.key: ev.value for ev in env_var_rows}
 
-    # Step 4: Save the invocation log
+    # Step 4: Run the code in a Docker container
+    result = await run_function(
+        code=fn.code, input_data=request.input, env_vars=env_vars
+    )
+
+    # Step 5: Save the invocation log
     invocation = Invocation(
         function_id=function_id,
         input=json.dumps(request.input),
@@ -80,7 +92,7 @@ async def invoke_function(
     await db.commit()
     await db.refresh(invocation)
 
-    # Step 5: Return the result
+    # Step 6: Return the result
     if not result["success"]:
         # Still return 200 but include the error in the response body.
         # This way the invocation log is saved even for failed runs.
