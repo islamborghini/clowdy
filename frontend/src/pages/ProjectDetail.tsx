@@ -22,7 +22,7 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
-type Tab = "functions" | "routes" | "environment" | "settings"
+type Tab = "functions" | "routes" | "dependencies" | "environment" | "settings"
 
 export function ProjectDetail() {
   const { id } = useParams()
@@ -54,6 +54,13 @@ export function ProjectDetail() {
   const [newRouteFunctionId, setNewRouteFunctionId] = useState("")
   const [savingRoute, setSavingRoute] = useState(false)
 
+  // Dependencies state
+  const [depsText, setDepsText] = useState("")
+  const [depsLoaded, setDepsLoaded] = useState(false)
+  const [depsBuilding, setDepsBuilding] = useState(false)
+  const [depsError, setDepsError] = useState("")
+  const [depsHasImage, setDepsHasImage] = useState(false)
+
   useEffect(() => {
     if (!id) return
     Promise.all([api.projects.get(id), api.projects.functions(id)])
@@ -75,6 +82,19 @@ export function ProjectDetail() {
       .catch((err) => setEnvError(err.message))
       .finally(() => setEnvLoading(false))
   }, [activeTab, id])
+
+  // Load dependencies when the dependencies tab is activated
+  useEffect(() => {
+    if (activeTab !== "dependencies" || !id || depsLoaded) return
+    api.projects.requirements
+      .get(id)
+      .then((res) => {
+        setDepsText(res.requirements_txt)
+        setDepsHasImage(res.has_custom_image)
+        setDepsLoaded(true)
+      })
+      .catch((err) => setDepsError(err.message))
+  }, [activeTab, id, depsLoaded])
 
   // Load routes when the routes tab is activated
   useEffect(() => {
@@ -119,6 +139,20 @@ export function ProjectDetail() {
       setRoutesError(
         err instanceof Error ? err.message : "Failed to delete route"
       )
+    }
+  }
+
+  async function handleSaveDeps() {
+    if (!id) return
+    setDepsBuilding(true)
+    setDepsError("")
+    try {
+      const res = await api.projects.requirements.update(id, depsText)
+      setDepsHasImage(res.has_custom_image)
+    } catch (err) {
+      setDepsError(err instanceof Error ? err.message : "Build failed")
+    } finally {
+      setDepsBuilding(false)
     }
   }
 
@@ -192,6 +226,7 @@ export function ProjectDetail() {
   const tabs: { key: Tab; label: string }[] = [
     { key: "functions", label: "Functions" },
     { key: "routes", label: "Routes" },
+    { key: "dependencies", label: "Dependencies" },
     { key: "environment", label: "Environment" },
     { key: "settings", label: "Settings" },
   ]
@@ -386,6 +421,50 @@ export function ProjectDetail() {
                   })}
                 </div>
               )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {activeTab === "dependencies" && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>pip Dependencies</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-4 text-sm text-muted-foreground">
+                Add Python packages your functions need. One package per line,
+                same format as requirements.txt.
+              </p>
+              <textarea
+                className="w-full rounded-md border bg-transparent px-3 py-2 font-mono text-sm min-h-50 focus:outline-none focus:ring-2 focus:ring-ring"
+                placeholder={"requests==2.31.0\nnumpy==1.24.3\npandas==2.0.0"}
+                value={depsText}
+                onChange={(e) => setDepsText(e.target.value)}
+                disabled={depsBuilding}
+              />
+              {depsError && (
+                <p className="mt-2 text-sm text-destructive">{depsError}</p>
+              )}
+              <div className="mt-4 flex items-center gap-4">
+                <Button
+                  onClick={handleSaveDeps}
+                  disabled={depsBuilding}
+                >
+                  {depsBuilding ? "Building..." : "Save & Build"}
+                </Button>
+                {depsHasImage && !depsBuilding && (
+                  <span className="text-sm text-muted-foreground">
+                    Custom image built
+                  </span>
+                )}
+                {!depsHasImage && !depsBuilding && depsLoaded && depsText.trim() === "" && (
+                  <span className="text-sm text-muted-foreground">
+                    Using default runtime (stdlib only)
+                  </span>
+                )}
+              </div>
             </CardContent>
           </Card>
         </div>

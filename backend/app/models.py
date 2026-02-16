@@ -58,6 +58,8 @@ class Project(Base):
     slug: Mapped[str] = mapped_column(unique=True)
     description: Mapped[str] = mapped_column(default="")
     status: Mapped[str] = mapped_column(default="active")
+    requirements_txt: Mapped[str] = mapped_column(Text, default="")
+    requirements_hash: Mapped[str] = mapped_column(default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 

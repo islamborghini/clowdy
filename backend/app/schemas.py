@@ -46,6 +46,7 @@ class ProjectResponse(BaseModel):
     description: str
     status: str
     function_count: int = 0
+    requirements_txt: str = ""
     created_at: datetime
     updated_at: datetime
 
@@ -164,6 +165,23 @@ class RouteResponse(BaseModel):
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# --- Requirements schemas ---
+
+
+class RequirementsUpdate(BaseModel):
+    """Schema for updating a project's pip dependencies."""
+
+    requirements_txt: str
+
+
+class RequirementsResponse(BaseModel):
+    """Schema for requirements data returned by the API."""
+
+    requirements_txt: str
+    requirements_hash: str
+    has_custom_image: bool
 
 
 # --- Invocation schemas ---

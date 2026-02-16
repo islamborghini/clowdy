@@ -20,9 +20,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import EnvVar, Function, Invocation
+from app.models import EnvVar, Function, Invocation, Project
 from app.schemas import InvokeRequest, InvocationResponse
 from app.services.docker_runner import run_function
+from app.services.image_builder import get_image_name
 
 router = APIRouter(prefix="/api", tags=["invoke"])
 
@@ -65,8 +66,9 @@ async def invoke_function(
             detail=f"Function is not active (status: {fn.status})",
         )
 
-    # Step 3: Fetch project env vars (if this function belongs to a project)
+    # Step 3: Fetch project env vars and custom image (if function belongs to a project)
     env_vars = None
+    image_name = None
     if fn.project_id:
         ev_result = await db.execute(
             select(EnvVar).where(EnvVar.project_id == fn.project_id)
@@ -75,12 +77,18 @@ async def invoke_function(
         if env_var_rows:
             env_vars = {ev.key: ev.value for ev in env_var_rows}
 
+        # Check if project has a custom image with pip dependencies
+        project = await db.get(Project, fn.project_id)
+        if project and project.requirements_hash:
+            image_name = get_image_name(project.id, project.requirements_hash)
+
     # Step 4: Run the code in a Docker container
     result = await run_function(
         code=fn.code,
         input_data=request.input,
         env_vars=env_vars,
         function_name=fn.name,
+        image_name=image_name,
     )
 
     # Step 5: Save the invocation log

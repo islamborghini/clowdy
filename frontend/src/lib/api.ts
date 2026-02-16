@@ -153,6 +153,22 @@ export const api = {
           }
         ),
     },
+
+    requirements: {
+      get: (projectId: string) =>
+        apiFetch<RequirementsResponse>(
+          `/api/projects/${projectId}/requirements`
+        ),
+
+      update: (projectId: string, requirementsTxt: string) =>
+        apiFetch<RequirementsResponse>(
+          `/api/projects/${projectId}/requirements`,
+          {
+            method: "PUT",
+            body: JSON.stringify({ requirements_txt: requirementsTxt }),
+          }
+        ),
+    },
   },
 
   functions: {
@@ -213,6 +229,7 @@ export interface ProjectResponse {
   description: string
   status: string
   function_count: number
+  requirements_txt: string
   created_at: string
   updated_at: string
 }
@@ -278,6 +295,13 @@ export interface RouteUpdate {
   method?: string
   path?: string
   description?: string
+}
+
+/** What the backend returns for project requirements. */
+export interface RequirementsResponse {
+  requirements_txt: string
+  requirements_hash: string
+  has_custom_image: boolean
 }
 
 /** What the backend expects when you create a new function. */

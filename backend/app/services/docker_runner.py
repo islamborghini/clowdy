@@ -67,6 +67,7 @@ async def run_function(
     input_data: dict,
     env_vars: dict[str, str] | None = None,
     function_name: str = "unknown",
+    image_name: str | None = None,
 ) -> dict:
     """
     Execute a user's function code inside a Docker container.
@@ -83,6 +84,8 @@ async def run_function(
                   and are accessible via os.environ inside the function.
         function_name: Name of the function, passed to the container as
                        FUNCTION_NAME env var for use in handler(event, context).
+        image_name: Optional custom Docker image to use instead of the default
+                    clowdy-python-runtime. Used when a project has pip deps.
 
     Returns:
         A dict with keys:
@@ -93,7 +96,8 @@ async def run_function(
     # Run the blocking Docker operations in a separate thread.
     # This prevents the async event loop from freezing while Docker works.
     return await asyncio.to_thread(
-        _run_in_container, code, input_data, env_vars, function_name
+        _run_in_container, code, input_data, env_vars, function_name,
+        image_name,
     )
 
 
@@ -120,6 +124,7 @@ def _run_in_container(
     input_data: dict,
     env_vars: dict[str, str] | None = None,
     function_name: str = "unknown",
+    image_name: str | None = None,
 ) -> dict:
     """
     Synchronous function that does the actual Docker work.
@@ -156,8 +161,9 @@ def _run_in_container(
         # network_disabled: prevent the function from making network calls
         # mem_limit: cap memory at 128MB to prevent abuse
         # nano_cpus: limit to 0.5 CPU cores (500 million nanocpus)
+        use_image = image_name or IMAGE_NAME
         container = client.containers.create(
-            IMAGE_NAME,
+            use_image,
             environment=container_env,
             network_disabled=True,
             mem_limit="128m",
@@ -210,13 +216,17 @@ def _run_in_container(
 
     except ImageNotFound:
         duration_ms = int((time.time() - start_time) * 1000)
-        return {
-            "success": False,
-            "output": (
-                f"Docker image '{IMAGE_NAME}' not found. "
+        msg = f"Docker image '{use_image}' not found. "
+        if image_name:
+            msg += "The project's custom image may need to be rebuilt."
+        else:
+            msg += (
                 "Build it with: cd backend/docker/runtimes/python && "
                 "docker build -t clowdy-python-runtime ."
-            ),
+            )
+        return {
+            "success": False,
+            "output": msg,
             "duration_ms": duration_ms,
         }
 

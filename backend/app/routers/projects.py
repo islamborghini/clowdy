@@ -79,6 +79,7 @@ async def create_project(
         description=project.description,
         status=project.status,
         function_count=0,
+        requirements_txt=project.requirements_txt,
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
@@ -106,6 +107,7 @@ async def list_projects(
             description=p.description,
             status=p.status,
             function_count=fn_count,
+            requirements_txt=p.requirements_txt,
             created_at=p.created_at,
             updated_at=p.updated_at,
         )
@@ -134,6 +136,7 @@ async def get_project(
         description=project.description,
         status=project.status,
         function_count=fn_count,
+        requirements_txt=project.requirements_txt,
         created_at=project.created_at,
         updated_at=project.updated_at,
     )
@@ -171,6 +174,7 @@ async def update_project(
         description=project.description,
         status=project.status,
         function_count=fn_count,
+        requirements_txt=project.requirements_txt,
         created_at=project.created_at,
         updated_at=project.updated_at,
     )

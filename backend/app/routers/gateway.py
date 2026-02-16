@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models import EnvVar, Function, Invocation, Project, Route
 from app.services.docker_runner import run_function
+from app.services.image_builder import get_image_name
 
 router = APIRouter(prefix="/api/gateway", tags=["gateway"])
 
@@ -169,7 +170,7 @@ async def _handle_gateway(
         "body": body,
     }
 
-    # Step 6: Fetch project env vars
+    # Step 6: Fetch project env vars and custom image
     env_vars = None
     ev_result = await db.execute(
         select(EnvVar).where(EnvVar.project_id == project.id)
@@ -178,12 +179,17 @@ async def _handle_gateway(
     if env_var_rows:
         env_vars = {ev.key: ev.value for ev in env_var_rows}
 
+    image_name = None
+    if project.requirements_hash:
+        image_name = get_image_name(project.id, project.requirements_hash)
+
     # Step 7: Run the function with the event as input
     result = await run_function(
         code=fn.code,
         input_data=event,
         env_vars=env_vars,
         function_name=fn.name,
+        image_name=image_name,
     )
 
     # Step 8: Save invocation log with gateway metadata
