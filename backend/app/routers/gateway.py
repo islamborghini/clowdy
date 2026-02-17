@@ -183,6 +183,12 @@ async def _handle_gateway(
     if project.requirements_hash:
         image_name = get_image_name(project.id, project.requirements_hash)
 
+    # Inject DATABASE_URL if project has a Neon database
+    if project.database_url:
+        if env_vars is None:
+            env_vars = {}
+        env_vars["DATABASE_URL"] = project.database_url
+
     # Step 7: Run the function with the event as input
     result = await run_function(
         code=fn.code,

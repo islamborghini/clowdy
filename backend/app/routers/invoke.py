@@ -82,6 +82,12 @@ async def invoke_function(
         if project and project.requirements_hash:
             image_name = get_image_name(project.id, project.requirements_hash)
 
+        # Inject DATABASE_URL if project has a Neon database
+        if project and project.database_url:
+            if env_vars is None:
+                env_vars = {}
+            env_vars["DATABASE_URL"] = project.database_url
+
     # Step 4: Run the code in a Docker container
     result = await run_function(
         code=fn.code,
