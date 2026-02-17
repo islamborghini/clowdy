@@ -23,7 +23,7 @@ import {
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
 
-type Tab = "functions" | "routes" | "dependencies" | "environment" | "settings"
+type Tab = "functions" | "routes" | "dependencies" | "database" | "environment" | "settings"
 
 export function ProjectDetail() {
   const { id } = useParams()
@@ -54,6 +54,12 @@ export function ProjectDetail() {
   const [newRoutePath, setNewRoutePath] = useState("")
   const [newRouteFunctionId, setNewRouteFunctionId] = useState("")
   const [savingRoute, setSavingRoute] = useState(false)
+
+  // Database state
+  const [dbStatus, setDbStatus] = useState<DatabaseResponse | null>(null)
+  const [dbLoading, setDbLoading] = useState(false)
+  const [dbProvisioning, setDbProvisioning] = useState(false)
+  const [dbError, setDbError] = useState("")
 
   // Dependencies state
   const [depsText, setDepsText] = useState("")
@@ -96,6 +102,18 @@ export function ProjectDetail() {
       })
       .catch((err) => setDepsError(err.message))
   }, [activeTab, id, depsLoaded])
+
+  // Load database status when the database tab is activated
+  useEffect(() => {
+    if (activeTab !== "database" || !id) return
+    setDbLoading(true)
+    setDbError("")
+    api.projects.database
+      .get(id)
+      .then(setDbStatus)
+      .catch((err) => setDbError(err.message))
+      .finally(() => setDbLoading(false))
+  }, [activeTab, id])
 
   // Load routes when the routes tab is activated
   useEffect(() => {
@@ -154,6 +172,36 @@ export function ProjectDetail() {
       setDepsError(err instanceof Error ? err.message : "Build failed")
     } finally {
       setDepsBuilding(false)
+    }
+  }
+
+  async function handleProvisionDb() {
+    if (!id) return
+    setDbProvisioning(true)
+    setDbError("")
+    try {
+      const res = await api.projects.database.provision(id)
+      setDbStatus(res)
+    } catch (err) {
+      setDbError(err instanceof Error ? err.message : "Failed to provision database")
+    } finally {
+      setDbProvisioning(false)
+    }
+  }
+
+  async function handleDeprovisionDb() {
+    if (!id) return
+    if (!window.confirm("Delete this database? All data will be permanently lost."))
+      return
+    setDbProvisioning(true)
+    setDbError("")
+    try {
+      const res = await api.projects.database.deprovision(id)
+      setDbStatus(res)
+    } catch (err) {
+      setDbError(err instanceof Error ? err.message : "Failed to delete database")
+    } finally {
+      setDbProvisioning(false)
     }
   }
 
@@ -228,6 +276,7 @@ export function ProjectDetail() {
     { key: "functions", label: "Functions" },
     { key: "routes", label: "Routes" },
     { key: "dependencies", label: "Dependencies" },
+    { key: "database", label: "Database" },
     { key: "environment", label: "Environment" },
     { key: "settings", label: "Settings" },
   ]
@@ -466,6 +515,81 @@ export function ProjectDetail() {
                   </span>
                 )}
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {activeTab === "database" && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>PostgreSQL Database</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {dbLoading ? (
+                <p className="text-muted-foreground">Loading...</p>
+              ) : dbStatus?.has_database ? (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Your project has a managed PostgreSQL database. The connection
+                    string is automatically available as{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                      DATABASE_URL
+                    </code>{" "}
+                    in all your functions.
+                  </p>
+                  <div className="space-y-2">
+                    <Label>Connection String</Label>
+                    <code className="block rounded-md border bg-muted px-3 py-2 text-sm break-all">
+                      {dbStatus.database_url}
+                    </code>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Neon Project ID</Label>
+                    <code className="block rounded-md border bg-muted px-3 py-2 text-sm">
+                      {dbStatus.neon_project_id}
+                    </code>
+                  </div>
+                  {dbError && (
+                    <p className="text-sm text-destructive">{dbError}</p>
+                  )}
+                  <Button
+                    variant="destructive"
+                    onClick={handleDeprovisionDb}
+                    disabled={dbProvisioning}
+                  >
+                    {dbProvisioning ? "Deleting..." : "Delete Database"}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <p className="text-sm text-muted-foreground">
+                    Provision a managed PostgreSQL database for this project.
+                    Once created, the connection string will be automatically
+                    injected as{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                      DATABASE_URL
+                    </code>{" "}
+                    into all your function containers.
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    Usage example:{" "}
+                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                      os.environ["DATABASE_URL"]
+                    </code>
+                  </p>
+                  {dbError && (
+                    <p className="text-sm text-destructive">{dbError}</p>
+                  )}
+                  <Button
+                    onClick={handleProvisionDb}
+                    disabled={dbProvisioning}
+                  >
+                    {dbProvisioning ? "Provisioning..." : "Provision Database"}
+                  </Button>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

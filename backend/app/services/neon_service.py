@@ -26,6 +26,30 @@ def _headers() -> dict[str, str]:
     }
 
 
+def _raise_with_detail(resp: httpx.Response) -> None:
+    """Raise an error with the actual Neon API error message."""
+    try:
+        body = resp.json()
+        message = body.get("message", "") or body.get("error", "") or resp.text
+    except Exception:
+        message = resp.text
+    raise RuntimeError(f"Neon API error ({resp.status_code}): {message}")
+
+
+async def _get_org_id(client: httpx.AsyncClient) -> str:
+    """Fetch the user's Neon organization ID (required for project creation)."""
+    resp = await client.get(
+        f"{NEON_API_BASE}/users/me/organizations",
+        headers=_headers(),
+    )
+    if resp.status_code != 200:
+        _raise_with_detail(resp)
+    orgs = resp.json().get("organizations", [])
+    if not orgs:
+        raise RuntimeError("No Neon organization found. Create one at console.neon.tech")
+    return orgs[0]["id"]
+
+
 async def provision_database(project_name: str) -> tuple[str, str]:
     """
     Create a Neon project and return (neon_project_id, connection_uri).
@@ -34,17 +58,21 @@ async def provision_database(project_name: str) -> tuple[str, str]:
     database (neondb) and role (neondb_owner).
     """
     async with httpx.AsyncClient(timeout=60) as client:
-        # Step 1: Create the Neon project
+        # Step 1: Get the org_id (required by Neon for project creation)
+        org_id = await _get_org_id(client)
+
+        # Step 2: Create the Neon project
         create_resp = await client.post(
             f"{NEON_API_BASE}/projects",
             headers=_headers(),
-            json={"project": {"name": f"clowdy-{project_name}"}},
+            json={"project": {"name": f"clowdy-{project_name}", "org_id": org_id}},
         )
-        create_resp.raise_for_status()
+        if create_resp.status_code != 201:
+            _raise_with_detail(create_resp)
         project_data = create_resp.json()
         neon_project_id = project_data["project"]["id"]
 
-        # Step 2: Get the connection URI
+        # Step 3: Get the connection URI
         uri_resp = await client.get(
             f"{NEON_API_BASE}/projects/{neon_project_id}/connection_uri",
             headers=_headers(),
@@ -53,7 +81,8 @@ async def provision_database(project_name: str) -> tuple[str, str]:
                 "role_name": "neondb_owner",
             },
         )
-        uri_resp.raise_for_status()
+        if uri_resp.status_code != 200:
+            _raise_with_detail(uri_resp)
         connection_uri = uri_resp.json()["uri"]
 
         return neon_project_id, connection_uri
@@ -68,7 +97,8 @@ async def deprovision_database(neon_project_id: str) -> bool:
             f"{NEON_API_BASE}/projects/{neon_project_id}",
             headers=_headers(),
         )
-        resp.raise_for_status()
+        if resp.status_code >= 400:
+            _raise_with_detail(resp)
         return True
 
 
