@@ -38,3 +38,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 # CLERK_JWKS_URL is your instance's JWKS endpoint for verifying JWTs.
 # Format: https://<your-instance>.clerk.accounts.dev/.well-known/jwks.json
 CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")
+
+# Neon API key for managed PostgreSQL databases.
+# Get a free key at https://console.neon.tech/account/api-keys
+NEON_API_KEY = os.getenv("NEON_API_KEY", "")

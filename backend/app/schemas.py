@@ -47,6 +47,7 @@ class ProjectResponse(BaseModel):
     status: str
     function_count: int = 0
     requirements_txt: str = ""
+    has_database: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -182,6 +183,17 @@ class RequirementsResponse(BaseModel):
     requirements_txt: str
     requirements_hash: str
     has_custom_image: bool
+
+
+# --- Database schemas ---
+
+
+class DatabaseResponse(BaseModel):
+    """Schema for database status returned by the API."""
+
+    has_database: bool
+    database_url: str
+    neon_project_id: str
 
 
 # --- Invocation schemas ---

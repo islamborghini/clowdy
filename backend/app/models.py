@@ -60,6 +60,8 @@ class Project(Base):
     status: Mapped[str] = mapped_column(default="active")
     requirements_txt: Mapped[str] = mapped_column(Text, default="")
     requirements_hash: Mapped[str] = mapped_column(default="")
+    neon_project_id: Mapped[str] = mapped_column(default="")
+    database_url: Mapped[str] = mapped_column(Text, default="")
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 

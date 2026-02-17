@@ -19,7 +19,7 @@ import io
 import tarfile
 
 import docker
-from docker.errors import ImageNotFound
+from docker.errors import BuildError, ImageNotFound
 
 from app.services.docker_runner import _get_docker_client
 
@@ -118,12 +118,26 @@ def build_project_image(
         cleanup_old_images(project_id, req_hash)
         return True, image_name, req_hash
 
-    except Exception as exc:
-        # Extract useful error message from Docker build output
-        error_msg = str(exc)
-        # Docker build errors often contain the pip install output
-        # which tells the user what went wrong
+    except BuildError as exc:
+        # Extract the actual build log so the user sees pip's error output
+        log_lines = []
+        for chunk in exc.build_log:
+            if isinstance(chunk, dict):
+                stream = chunk.get("stream", "").strip()
+                error = chunk.get("error", "").strip()
+                if error:
+                    log_lines.append(error)
+                elif stream:
+                    log_lines.append(stream)
+            elif isinstance(chunk, str):
+                log_lines.append(chunk.strip())
+        # Show the last few lines which usually contain the actual error
+        relevant = [l for l in log_lines if l][-10:]
+        error_msg = "\n".join(relevant) if relevant else str(exc)
         return False, error_msg, ""
+
+    except Exception as exc:
+        return False, str(exc), ""
 
 
 def cleanup_old_images(project_id: str, keep_hash: str) -> None:
