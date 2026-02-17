@@ -18,6 +18,7 @@ import {
   type FunctionResponse,
   type EnvVarResponse,
   type RouteResponse,
+  type DatabaseResponse,
 } from "@/lib/api"
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"

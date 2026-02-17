@@ -154,6 +154,25 @@ export const api = {
         ),
     },
 
+    database: {
+      get: (projectId: string) =>
+        apiFetch<DatabaseResponse>(
+          `/api/projects/${projectId}/database`
+        ),
+
+      provision: (projectId: string) =>
+        apiFetch<DatabaseResponse>(
+          `/api/projects/${projectId}/database/provision`,
+          { method: "POST" }
+        ),
+
+      deprovision: (projectId: string) =>
+        apiFetch<DatabaseResponse>(
+          `/api/projects/${projectId}/database/deprovision`,
+          { method: "DELETE" }
+        ),
+    },
+
     requirements: {
       get: (projectId: string) =>
         apiFetch<RequirementsResponse>(
@@ -230,6 +249,7 @@ export interface ProjectResponse {
   status: string
   function_count: number
   requirements_txt: string
+  has_database: boolean
   created_at: string
   updated_at: string
 }
@@ -295,6 +315,13 @@ export interface RouteUpdate {
   method?: string
   path?: string
   description?: string
+}
+
+/** What the backend returns for project database status. */
+export interface DatabaseResponse {
+  has_database: boolean
+  database_url: string
+  neon_project_id: string
 }
 
 /** What the backend returns for project requirements. */
