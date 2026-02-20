@@ -85,6 +85,7 @@ class FunctionUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     code: str | None = None
+    network_enabled: bool | None = None
 
 
 class FunctionResponse(BaseModel):
@@ -102,6 +103,7 @@ class FunctionResponse(BaseModel):
     code: str
     runtime: str
     status: str
+    network_enabled: bool = False
     created_at: datetime
     updated_at: datetime
 

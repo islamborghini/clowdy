@@ -68,6 +68,7 @@ async def run_function(
     env_vars: dict[str, str] | None = None,
     function_name: str = "unknown",
     image_name: str | None = None,
+    network_enabled: bool = False,
 ) -> dict:
     """
     Execute a user's function code inside a Docker container.
@@ -86,6 +87,8 @@ async def run_function(
                        FUNCTION_NAME env var for use in handler(event, context).
         image_name: Optional custom Docker image to use instead of the default
                     clowdy-python-runtime. Used when a project has pip deps.
+        network_enabled: Whether to allow outbound network access from the
+                         container. Defaults to False (network disabled).
 
     Returns:
         A dict with keys:
@@ -97,7 +100,7 @@ async def run_function(
     # This prevents the async event loop from freezing while Docker works.
     return await asyncio.to_thread(
         _run_in_container, code, input_data, env_vars, function_name,
-        image_name,
+        image_name, network_enabled,
     )
 
 
@@ -125,6 +128,7 @@ def _run_in_container(
     env_vars: dict[str, str] | None = None,
     function_name: str = "unknown",
     image_name: str | None = None,
+    network_enabled: bool = False,
 ) -> dict:
     """
     Synchronous function that does the actual Docker work.
@@ -159,13 +163,14 @@ def _run_in_container(
         # We need it stopped first so we can copy the code file in
         # before it starts running.
         # network_disabled: prevent the function from making network calls
+        #   (unless network_enabled is True for this function)
         # mem_limit: cap memory at 128MB to prevent abuse
         # nano_cpus: limit to 0.5 CPU cores (500 million nanocpus)
         use_image = image_name or IMAGE_NAME
         container = client.containers.create(
             use_image,
             environment=container_env,
-            network_disabled=True,
+            network_disabled=not network_enabled,
             mem_limit="128m",
             nano_cpus=500_000_000,
         )

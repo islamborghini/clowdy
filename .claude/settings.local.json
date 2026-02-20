@@ -6,7 +6,8 @@
       "Bash(docker:*)",
       "WebFetch(domain:docs.sqlalchemy.org)",
       "WebFetch(domain:vite.dev)",
-      "WebFetch(domain:ui.shadcn.com)"
+      "WebFetch(domain:ui.shadcn.com)",
+      "Bash(npx tsc:*)"
     ]
   }
 }

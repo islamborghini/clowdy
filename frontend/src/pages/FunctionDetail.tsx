@@ -36,6 +36,9 @@ export function FunctionDetail() {
   const [editCode, setEditCode] = useState("")
   const [saving, setSaving] = useState(false)
 
+  // Network toggle state
+  const [networkSaving, setNetworkSaving] = useState(false)
+
   // Invoke/test state
   const [testInput, setTestInput] = useState("{}")
   const [invoking, setInvoking] = useState(false)
@@ -117,6 +120,22 @@ export function FunctionDetail() {
       navigate("/functions")
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete")
+    }
+  }
+
+  /** Toggle network access for this function. */
+  async function handleToggleNetwork() {
+    if (!id || !fn) return
+    setNetworkSaving(true)
+    try {
+      const updated = await api.functions.update(id, {
+        network_enabled: !fn.network_enabled,
+      })
+      setFn(updated)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update")
+    } finally {
+      setNetworkSaving(false)
     }
   }
 
@@ -222,12 +241,32 @@ export function FunctionDetail() {
                 </div>
               </div>
             ) : (
-              <div className="space-y-2 text-sm">
+              <div className="space-y-3 text-sm">
                 {fn.description && <p>{fn.description}</p>}
                 <div className="flex gap-6 text-muted-foreground">
                   <span>Runtime: {fn.runtime}</span>
                   <span>Created: {new Date(fn.created_at).toLocaleString()}</span>
                   <span>Updated: {new Date(fn.updated_at).toLocaleString()}</span>
+                </div>
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={fn.network_enabled}
+                    onClick={handleToggleNetwork}
+                    disabled={networkSaving}
+                    className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 ${fn.network_enabled ? "bg-primary" : "bg-input"}`}
+                  >
+                    <span
+                      className={`pointer-events-none block h-4 w-4 rounded-full bg-background shadow-lg ring-0 transition-transform ${fn.network_enabled ? "translate-x-4" : "translate-x-0"}`}
+                    />
+                  </button>
+                  <Label className="text-sm font-normal cursor-pointer" onClick={handleToggleNetwork}>
+                    Network access {fn.network_enabled ? "enabled" : "disabled"}
+                  </Label>
+                  {networkSaving && (
+                    <span className="text-xs text-muted-foreground">Saving...</span>
+                  )}
                 </div>
               </div>
             )}

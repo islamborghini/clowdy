@@ -196,6 +196,7 @@ async def _handle_gateway(
         env_vars=env_vars,
         function_name=fn.name,
         image_name=image_name,
+        network_enabled=fn.network_enabled,
     )
 
     # Step 8: Save invocation log with gateway metadata

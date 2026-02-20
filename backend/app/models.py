@@ -96,6 +96,7 @@ class Function(Base):
     code: Mapped[str] = mapped_column(Text)
     runtime: Mapped[str] = mapped_column(default="python")
     status: Mapped[str] = mapped_column(default="active")
+    network_enabled: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 

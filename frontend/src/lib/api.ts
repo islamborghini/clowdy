@@ -206,9 +206,8 @@ export const api = {
 
     /**
      * Update an existing function. Only the fields you include will be changed.
-     * Partial<FunctionCreate> means all fields are optional.
      */
-    update: (id: string, data: Partial<FunctionCreate>) =>
+    update: (id: string, data: FunctionUpdate) =>
       apiFetch<FunctionResponse>(`/api/functions/${id}`, {
         method: "PUT",
         body: JSON.stringify(data),
@@ -268,6 +267,7 @@ export interface FunctionResponse {
   code: string
   runtime: string
   status: string
+  network_enabled: boolean
   created_at: string
   updated_at: string
 }
@@ -338,6 +338,14 @@ export interface FunctionCreate {
   code: string
   runtime?: string // defaults to "python" on the backend
   project_id?: string
+}
+
+/** What the backend expects when you update a function. All fields optional. */
+export interface FunctionUpdate {
+  name?: string
+  description?: string
+  code?: string
+  network_enabled?: boolean
 }
 
 /** What the backend returns when you invoke a function. */

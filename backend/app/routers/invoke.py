@@ -95,6 +95,7 @@ async def invoke_function(
         env_vars=env_vars,
         function_name=fn.name,
         image_name=image_name,
+        network_enabled=fn.network_enabled,
     )
 
     # Step 5: Save the invocation log
