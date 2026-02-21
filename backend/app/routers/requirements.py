@@ -95,11 +95,13 @@ async def update_requirements(
     if new_hash == project.requirements_hash:
         image_name = get_image_name(project.id, new_hash)
         has_image = await asyncio.to_thread(image_exists, image_name)
-        return RequirementsResponse(
-            requirements_txt=project.requirements_txt,
-            requirements_hash=project.requirements_hash,
-            has_custom_image=has_image,
-        )
+        if has_image:
+            return RequirementsResponse(
+                requirements_txt=project.requirements_txt,
+                requirements_hash=project.requirements_hash,
+                has_custom_image=True,
+            )
+        # Image is missing (e.g. Docker prune), fall through to rebuild
 
     # Build the custom image (synchronous, runs in thread pool)
     success, result, req_hash = await asyncio.to_thread(

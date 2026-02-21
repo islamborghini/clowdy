@@ -21,7 +21,7 @@ Flow:
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,7 +30,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import Function, Invocation
 from app.services.ai_agent import chat_with_tools
-from app.services.docker_runner import run_function
+from app.services.invoke_service import InvokeService
 
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -56,7 +56,8 @@ class ChatResponse(BaseModel):
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
-    request: ChatRequest,
+    body: ChatRequest,
+    request: Request,
     user_id: str = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -76,12 +77,13 @@ async def chat(
         It's passed to chat_with_tools() as a callback - when the AI says
         "call create_function", this function does the real work.
         """
+        invoke_service = request.app.state.invoke_service
         if tool_name == "create_function":
             return await _tool_create_function(db, user_id, tool_args)
         elif tool_name == "list_functions":
             return await _tool_list_functions(db, user_id)
         elif tool_name == "invoke_function":
-            return await _tool_invoke_function(db, user_id, tool_args)
+            return await _tool_invoke_function(db, user_id, tool_args, invoke_service)
         elif tool_name == "view_logs":
             return await _tool_view_logs(db, user_id, tool_args)
         elif tool_name == "update_function":
@@ -93,7 +95,7 @@ async def chat(
 
     try:
         result = await chat_with_tools(
-            messages=request.messages,
+            messages=body.messages,
             execute_tool=execute_tool,
         )
         return ChatResponse(
@@ -163,8 +165,10 @@ async def _tool_list_functions(db: AsyncSession, user_id: str) -> dict:
     }
 
 
-async def _tool_invoke_function(db: AsyncSession, user_id: str, args: dict) -> dict:
-    """Invoke a function in a Docker container."""
+async def _tool_invoke_function(
+    db: AsyncSession, user_id: str, args: dict, invoke_service: InvokeService,
+) -> dict:
+    """Invoke a function via the InvokeService (warm/cold container path)."""
     fn = await db.get(Function, args["function_id"])
     if not fn or fn.user_id != user_id:
         return {"error": f"Function '{args['function_id']}' not found"}
@@ -173,7 +177,7 @@ async def _tool_invoke_function(db: AsyncSession, user_id: str, args: dict) -> d
         return {"error": f"Function is not active (status: {fn.status})"}
 
     input_data = args.get("input", {})
-    result = await run_function(code=fn.code, input_data=input_data)
+    result = await invoke_service.invoke(code=fn.code, input_data=input_data)
 
     # Save invocation log
     invocation = Invocation(

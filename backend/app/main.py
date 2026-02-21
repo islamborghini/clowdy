@@ -10,6 +10,7 @@ Key concepts:
 - Routers: modular groups of related endpoints (imported from routers/)
 """
 
+import asyncio
 import logging
 import os
 import traceback
@@ -28,6 +29,9 @@ from app.config import FRONTEND_URL
 from app.database import engine, get_db
 from app.models import Function, Invocation
 from app.routers import chat, database, env_vars, functions, gateway, invoke, projects, requirements, routes
+from app.services.assignment_service import AssignmentService
+from app.services.invoke_service import InvokeService
+from app.services.placement_service import PlacementService
 
 
 def _run_migrations() -> None:
@@ -47,14 +51,36 @@ async def lifespan(app: FastAPI):
     """
     Application lifespan handler.
 
-    Code before "yield" runs on startup - we run Alembic migrations to
-    ensure the database schema is up to date. Alembic handles both creating
-    new tables and altering existing ones.
+    Startup:
+    - Run Alembic migrations
+    - Initialize the service layer (Placement, Assignment, Invoke)
+    - Start the background reaper for warm container cleanup
 
-    Code after "yield" runs on shutdown - we clean up the database connection pool.
+    Shutdown:
+    - Stop the reaper
+    - Destroy all pooled containers
+    - Clean up the database connection pool
     """
     _run_migrations()
+
+    # Initialize the service layer (mirrors AWS Lambda's architecture)
+    placement = PlacementService()
+    assignment = AssignmentService(max_pool_size=10, idle_timeout=300)
+    app.state.invoke_service = InvokeService(assignment, placement)
+
+    # Start background reaper to clean up idle warm containers
+    reaper_task = asyncio.create_task(assignment.run_reaper())
+    logger.info("Service layer initialized (warm container pool: max=10, idle_timeout=300s)")
+
     yield
+
+    # Shutdown: stop reaper, destroy all warm containers, close DB
+    reaper_task.cancel()
+    try:
+        await reaper_task
+    except asyncio.CancelledError:
+        pass
+    assignment.shutdown()
     await engine.dispose()
 
 

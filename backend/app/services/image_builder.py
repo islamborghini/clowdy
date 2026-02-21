@@ -21,7 +21,7 @@ import tarfile
 import docker
 from docker.errors import BuildError, ImageNotFound
 
-from app.services.docker_runner import _get_docker_client
+from app.services.placement_service import _get_docker_client
 
 # Base image that all custom images extend
 BASE_IMAGE = "clowdy-python-runtime"

@@ -26,9 +26,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import EnvVar, Function, Invocation, Project, Route
-from app.services.docker_runner import run_function
-from app.services.image_builder import get_image_name
+from app.models import Function, Invocation, Project, Route
+from app.services.context import resolve_context
 
 router = APIRouter(prefix="/api/gateway", tags=["gateway"])
 
@@ -102,9 +101,10 @@ async def _handle_gateway(
     2. Load all routes for the project
     3. Match request method + path against route patterns
     4. Build an event object with full HTTP context
-    5. Run the matched function
-    6. Log the invocation with gateway metadata
-    7. Return the function's response
+    5. Resolve execution context (env vars, image, DATABASE_URL)
+    6. Run the matched function via InvokeService
+    7. Log the invocation with gateway metadata
+    8. Return the function's response
     """
     # Step 1: Resolve project by slug
     result = await db.execute(
@@ -170,32 +170,17 @@ async def _handle_gateway(
         "body": body,
     }
 
-    # Step 6: Fetch project env vars and custom image
-    env_vars = None
-    ev_result = await db.execute(
-        select(EnvVar).where(EnvVar.project_id == project.id)
-    )
-    env_var_rows = ev_result.scalars().all()
-    if env_var_rows:
-        env_vars = {ev.key: ev.value for ev in env_var_rows}
+    # Step 6: Resolve execution context (env vars, custom image, DATABASE_URL)
+    ctx = await resolve_context(project.id, db)
 
-    image_name = None
-    if project.requirements_hash:
-        image_name = get_image_name(project.id, project.requirements_hash)
-
-    # Inject DATABASE_URL if project has a Neon database
-    if project.database_url:
-        if env_vars is None:
-            env_vars = {}
-        env_vars["DATABASE_URL"] = project.database_url
-
-    # Step 7: Run the function with the event as input
-    result = await run_function(
+    # Step 7: Run the function via InvokeService
+    invoke_service = request.app.state.invoke_service
+    result = await invoke_service.invoke(
         code=fn.code,
         input_data=event,
-        env_vars=env_vars,
+        env_vars=ctx.env_vars,
         function_name=fn.name,
-        image_name=image_name,
+        image_name=ctx.image_name,
         network_enabled=fn.network_enabled,
     )
 
