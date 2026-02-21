@@ -151,7 +151,11 @@ export function FunctionDetail() {
         code: editCode,
       })
       setFn(updated)
+      setSelectedVersion(updated.active_version)
+      setVersionCode(null)
       setEditing(false)
+      // Refresh versions list so the dropdown shows the new version
+      api.functions.versions(id).then(setVersions)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save")
     } finally {
@@ -240,7 +244,37 @@ export function FunctionDetail() {
             {fn.status}
           </Badge>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {versions.length > 0 && (
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedVersion ?? fn.active_version}
+                onChange={(e) => handleVersionChange(Number(e.target.value))}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                {versions.map((v) => (
+                  <option key={v.version} value={v.version}>
+                    v{v.version}{v.version === fn.active_version ? " (active)" : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedVersion !== null && selectedVersion === fn.active_version && (
+                <span className="text-xs text-gray-500" style={{ fontSize: "0.75rem" }}>
+                  active version
+                </span>
+              )}
+            </div>
+          )}
+          {viewingOldVersion && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleMakeActive}
+              disabled={settingActive}
+            >
+              {settingActive ? "Setting..." : "Make Active Version"}
+            </Button>
+          )}
           {editing ? (
             <>
               <Button variant="outline" onClick={() => setEditing(false)}>
@@ -252,7 +286,7 @@ export function FunctionDetail() {
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={startEditing}>
+              <Button variant="outline" onClick={startEditing} disabled={viewingOldVersion}>
                 Edit
               </Button>
               <Button variant="destructive" onClick={handleDelete}>
@@ -384,7 +418,7 @@ export function FunctionDetail() {
           <CardContent>
             <div className="overflow-hidden rounded-md border">
               <CodeEditor
-                value={editing ? editCode : fn.code}
+                value={editing ? editCode : displayCode}
                 onChange={editing ? setEditCode : undefined}
                 readOnly={!editing}
               />
