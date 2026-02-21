@@ -100,10 +100,26 @@ class FunctionResponse(BaseModel):
     id: str
     name: str
     description: str
-    code: str
+    code: str = ""
+    active_version: int = 1
     runtime: str
     status: str
     network_enabled: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# --- Function version schemas ---
+
+
+class FunctionVersionResponse(BaseModel):
+    """Schema for function version data returned by the API."""
+
+    function_id: str
+    version: int
+    code: str
     created_at: datetime
     updated_at: datetime
 

@@ -232,6 +232,16 @@ export const api = {
     /** Fetch invocation logs for a function, newest first. */
     invocations: (id: string) =>
       apiFetch<InvocationResponse[]>(`/api/functions/${id}/invocations`),
+
+    /** Fetch all versions for a function, newest first. */
+    versions: (id: string) =>
+      apiFetch<FunctionVersionResponse[]>(`/api/functions/${id}/versions`),
+
+    /** Set a specific version as the active version. */
+    setActiveVersion: (id: string, version: number) =>
+      apiFetch<FunctionResponse>(`/api/functions/${id}/versions/${version}`, {
+        method: "PUT",
+      }),
   },
 }
 
@@ -265,9 +275,19 @@ export interface FunctionResponse {
   name: string
   description: string
   code: string
+  active_version: number
   runtime: string
   status: string
   network_enabled: boolean
+  created_at: string
+  updated_at: string
+}
+
+/** What the backend returns when you fetch a function version. */
+export interface FunctionVersionResponse {
+  function_id: string
+  version: number
+  code: string
   created_at: string
   updated_at: string
 }

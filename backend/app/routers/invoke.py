@@ -21,7 +21,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Function, Invocation
+from app.models import Function, FunctionVersion, Invocation
 from app.schemas import InvokeRequest, InvocationResponse
 from app.services.context import resolve_context
 
@@ -68,13 +68,18 @@ async def invoke_function(
             detail=f"Function is not active (status: {fn.status})",
         )
 
-    # Step 3: Resolve execution context (env vars, custom image, DATABASE_URL)
+    # Step 3: Resolve the active version's code
+    version = await db.get(FunctionVersion, (fn.id, fn.active_version))
+    if not version:
+        raise HTTPException(status_code=500, detail="Active version not found")
+
+    # Step 4: Resolve execution context (env vars, custom image, DATABASE_URL)
     ctx = await resolve_context(fn.project_id, db)
 
-    # Step 4: Run via InvokeService (handles warm/cold container path)
+    # Step 5: Run via InvokeService (handles warm/cold container path)
     invoke_service = request.app.state.invoke_service
     result = await invoke_service.invoke(
-        code=fn.code,
+        code=version.code,
         input_data=body.input,
         env_vars=ctx.env_vars,
         function_name=fn.name,
