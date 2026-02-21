@@ -93,7 +93,7 @@ class Function(Base):
     )
     name: Mapped[str] = mapped_column(index=True)
     description: Mapped[str] = mapped_column(default="")
-    code: Mapped[str] = mapped_column(Text)
+    active_version: Mapped[int] = mapped_column(default=1)
     runtime: Mapped[str] = mapped_column(default="python")
     status: Mapped[str] = mapped_column(default="active")
     network_enabled: Mapped[bool] = mapped_column(default=False)
@@ -105,6 +105,9 @@ class Function(Base):
         back_populates="function", cascade="all, delete-orphan"
     )
     routes: Mapped[list["Route"]] = relationship(
+        back_populates="function", cascade="all, delete-orphan"
+    )
+    versions: Mapped[list["FunctionVersion"]] = relationship(
         back_populates="function", cascade="all, delete-orphan"
     )
 
@@ -173,6 +176,28 @@ class EnvVar(Base):
     updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
 
     project: Mapped["Project"] = relationship(back_populates="env_vars")
+
+
+class FunctionVersion(Base):
+    """
+    A versioned snapshot of a function's code.
+
+    Each time a function's code is updated, a new version row is created.
+    The composite primary key (function_id, version) uniquely identifies
+    each version of a function's code.
+    """
+
+    __tablename__ = "function_versions"
+
+    function_id: Mapped[str] = mapped_column(
+        ForeignKey("functions.id"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(primary_key=True)
+    code: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+
+    function: Mapped["Function"] = relationship(back_populates="versions")
 
 
 class Route(Base):

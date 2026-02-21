@@ -18,6 +18,7 @@ import { CodeEditor } from "@/components/functions/CodeEditor"
 import {
   api,
   type FunctionResponse,
+  type FunctionVersionResponse,
   type InvocationResponse,
 } from "@/lib/api"
 
@@ -45,6 +46,12 @@ export function FunctionDetail() {
   const [invokeResult, setInvokeResult] = useState<string | null>(null)
   const [invokeError, setInvokeError] = useState("")
 
+  // Version state
+  const [versions, setVersions] = useState<FunctionVersionResponse[]>([])
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
+  const [versionCode, setVersionCode] = useState<string | null>(null)
+  const [settingActive, setSettingActive] = useState(false)
+
   // Invocation logs state
   const [invocations, setInvocations] = useState<InvocationResponse[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -66,6 +73,48 @@ export function FunctionDetail() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [id])
+
+  // Fetch versions on mount
+  useEffect(() => {
+    if (!id) return
+    api.functions.versions(id).then((v) => {
+      setVersions(v)
+    })
+  }, [id])
+
+  // When a different version is selected from the dropdown, fetch its code
+  async function handleVersionChange(ver: number) {
+    if (!fn || !id) return
+    setSelectedVersion(ver)
+    if (ver === fn.active_version) {
+      setVersionCode(null)
+    } else {
+      const v = versions.find((v) => v.version === ver)
+      setVersionCode(v?.code ?? null)
+    }
+  }
+
+  // Make the currently selected version the active one
+  async function handleMakeActive() {
+    if (!id || selectedVersion === null) return
+    setSettingActive(true)
+    try {
+      const updated = await api.functions.setActiveVersion(id, selectedVersion)
+      setFn(updated)
+      setVersionCode(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to set version")
+    } finally {
+      setSettingActive(false)
+    }
+  }
+
+  // Whether we're viewing a non-active version
+  const viewingOldVersion =
+    selectedVersion !== null && fn !== null && selectedVersion !== fn.active_version
+
+  // The code to display: old version code if browsing, otherwise active code
+  const displayCode = viewingOldVersion && versionCode !== null ? versionCode : fn?.code ?? ""
 
   // Fetch invocation logs on mount and after each invocation
   function loadInvocations() {
