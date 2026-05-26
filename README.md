@@ -23,6 +23,8 @@ Write Python code in Monaco editor (browser)
                     |
                     v
        Save to SQLite via FastAPI
+       (each save creates a new FunctionVersion row;
+        the function points at its active_version)
                     |
           +---------+---------+
           |                   |
@@ -35,23 +37,42 @@ Write Python code in Monaco editor (browser)
           +---------+---------+
                     |
                     v
-         Create Docker container
-         (clowdy-python-runtime or custom image with pip deps)
+         Resolve execution context
+         (env vars, custom image, DATABASE_URL)
+                    |
+                    v
+         Invoke Service orchestrates the call
+                    |
+          +---------+---------+
+          |                   |
+   Assignment Service    Placement Service
+   (warm container       (cold start: build image
+    pool, keyed by        if needed, create new
+    image+network)        container)
+          |                   |
+          +---------+---------+
+                    |
+                    v
+                Worker Service
+         (docker exec into the container)
                     |
                     v
          Inject into container:
-         - User code as /app/function.py
+         - Active version code as /app/function.py
          - Input data as INPUT_JSON env var
          - Project env vars (KEY=value)
          - DATABASE_URL (if Neon database provisioned)
                     |
                     v
          Run with resource limits:
-         - 128MB RAM, 0.5 CPU, no network, 30s timeout
+         - 128MB RAM, 0.5 CPU, 30s timeout
+         - Network: disabled by default,
+           opt-in per function via toggle
                     |
                     v
          Capture stdout (JSON result)
-         Destroy container
+         Release container back to warm pool
+         (or destroy if pool is full)
                     |
                     v
          Log invocation (input, output, status, duration)
@@ -63,6 +84,12 @@ Write Python code in Monaco editor (browser)
 - **Projects**: Organize functions into projects with auto-generated URL slugs. Each project gets its own environment variables, pip dependencies, database, and API routes.
 
 - **Functions**: Create, edit, and delete Python functions through a Monaco code editor (same editor as VS Code). Test functions with JSON input directly from the browser and see results immediately.
+
+- **Function Versions**: Every code save creates a new immutable version. A version dropdown in the editor lets you browse previous versions and roll back instantly by setting an older version as active -- no redeploy step. Each version stores its full code snapshot in the `function_versions` table.
+
+- **Per-Function Network Toggle**: Functions run with `network_disabled=True` by default. Flip the toggle in the function detail page to allow outbound network access for that specific function (for calling third-party APIs, fetching data, etc.). The warm container pool keys on network setting so toggling does not bleed network state between functions.
+
+- **Warm Container Pool**: An AWS Lambda-style invocation pipeline split into Assignment Service (warm container pool with LRU eviction and idle reaper), Placement Service (cold start container creation), and Worker Service (`docker exec` into a container to run user code). Warm hits skip container creation entirely, dramatically reducing per-invocation latency.
 
 - **API Gateway**: Map HTTP routes to functions using method + path patterns with parameter extraction. Define routes like `GET /users/:id` and Clowdy matches incoming requests, extracts parameters, and invokes the right function with a structured event object containing method, path, params, query, headers, and body.
 
@@ -85,6 +112,9 @@ Write Python code in Monaco editor (browser)
 | Runtimes | Python | Node.js, Python, Go, Ruby | 7+ languages |
 | Isolation | Docker containers | V8 isolates / microVMs | Firecracker microVMs |
 | API Gateway | Built-in route matching with path params | Filesystem routing (Next.js) | Separate API Gateway service |
+| Versioning | Auto-versioned, one-click rollback | Git commit per deploy | Versions + aliases |
+| Warm starts | Container pool (Assignment Service) | V8 isolate reuse | Firecracker microVM reuse |
+| Network egress | Per-function toggle (default off) | Always on | VPC config / always on |
 | Env vars | Per-project UI with secret masking | Dashboard per-environment | Console / SSM / Secrets Manager |
 | Database | One-click Neon PostgreSQL | Neon/Supabase integration (separate) | RDS/DynamoDB (separate services) |
 | AI assistant | Built-in (create/invoke/manage functions) | None | Amazon Q (separate service) |
@@ -126,11 +156,11 @@ clowdy/
       auth.py                    # Clerk JWT verification (get_current_user)
       config.py                  # Environment variables (GROQ, CLERK, NEON keys)
       database.py                # SQLAlchemy async engine and session
-      models.py                  # ORM models (Project, Function, Invocation, EnvVar, Route)
+      models.py                  # ORM models (Project, Function, FunctionVersion, Invocation, EnvVar, Route)
       schemas.py                 # Pydantic request/response schemas
       routers/
         projects.py              # Project CRUD
-        functions.py             # Function CRUD
+        functions.py             # Function CRUD + version listing and rollback
         invoke.py                # Function execution and invocation logs
         chat.py                  # AI agent chat endpoint
         env_vars.py              # Environment variable management
@@ -138,10 +168,14 @@ clowdy/
         requirements.py          # pip dependency management
         database.py              # Neon database provisioning
         gateway.py               # HTTP API gateway with route matching
-      services/
-        docker_runner.py         # Docker container execution logic
-        ai_agent.py              # Groq integration and tool definitions
+      services/                  # AWS Lambda-style execution pipeline
+        invoke_service.py        # Orchestrator: warm-or-cold path, exec, release
+        assignment_service.py    # Warm container pool, LRU eviction, idle reaper
+        placement_service.py     # Cold start container creation
+        worker_service.py        # docker exec runner (no container lifecycle)
+        context.py               # Resolves env vars, image, DATABASE_URL per invoke
         image_builder.py         # Custom Docker image building for pip deps
+        ai_agent.py              # Groq integration and tool definitions
         neon_service.py          # Neon PostgreSQL API client
     docker/
       runtimes/
@@ -149,7 +183,7 @@ clowdy/
           Dockerfile             # Base runtime image (python:3.12-slim)
           runner.py              # Wrapper that imports and calls handler()
     alembic/
-      versions/                  # 7 migration files (001-007)
+      versions/                  # 9 migration files (001-009)
     requirements.txt             # Python dependencies
     .env.local                   # API keys (git-ignored)
 
@@ -283,9 +317,11 @@ curl http://localhost:8000/api/health
 |---|---|---|---|
 | POST | `/api/functions` | Yes | Create a function |
 | GET | `/api/functions` | Yes | List all functions |
-| GET | `/api/functions/:id` | Yes | Get a function |
-| PUT | `/api/functions/:id` | Yes | Update a function |
+| GET | `/api/functions/:id` | Yes | Get a function (returns active version code) |
+| PUT | `/api/functions/:id` | Yes | Update a function (new code creates a new version) |
 | DELETE | `/api/functions/:id` | Yes | Delete a function |
+| GET | `/api/functions/:id/versions` | Yes | List all versions, newest first |
+| PUT | `/api/functions/:id/versions/:version` | Yes | Set a specific version as active (rollback) |
 
 ### Invocation
 
@@ -343,14 +379,14 @@ curl http://localhost:8000/api/health
 
 ### Container Isolation
 
-Every function runs in an ephemeral Docker container with strict limits:
+Every function runs in a Docker container with strict limits:
 
-- **No network** -- `network_disabled=True` prevents all outbound connections
+- **Network off by default** -- `network_disabled=True` unless the function explicitly opts in via the per-function network toggle. The warm pool keys on this setting so a network-enabled function can never reuse a network-disabled container or vice versa.
 - **Memory cap** -- 128MB limit prevents memory exhaustion
 - **CPU cap** -- 0.5 cores prevents CPU monopolization
 - **Timeout** -- 30 seconds maximum, container killed after
 - **No volume mounts** -- code copied via `put_archive`, no host filesystem access
-- **Ephemeral** -- container destroyed after every execution, no persistent state
+- **Warm pool reuse** -- containers are kept warm for fast invocations but capped in size (LRU eviction) and reaped after idle timeout. Code is copied in fresh on every invocation so versions cannot leak between calls.
 
 ### Authentication
 
