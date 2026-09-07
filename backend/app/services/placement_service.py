@@ -51,7 +51,16 @@ class PlacementService:
     """
 
     def __init__(self):
-        self.client = _get_docker_client()
+        # Connect lazily. The control plane may never create a container (a
+        # worker fleet does that for it) and on Fargate it has no Docker
+        # socket at all -- constructing a client eagerly would fail startup.
+        self._client: docker.DockerClient | None = None
+
+    @property
+    def client(self) -> docker.DockerClient:
+        if self._client is None:
+            self._client = _get_docker_client()
+        return self._client
 
     def create(self, image: str, network_enabled: bool = False):
         """

@@ -13,11 +13,11 @@ Key concepts:
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from app.config import DATABASE_URL
+from app.config import DATABASE_URL, SQL_ECHO
 
 # Create the async database engine.
 # echo=True prints all SQL queries to the console (helpful for debugging).
-engine = create_async_engine(DATABASE_URL, echo=True)
+engine = create_async_engine(DATABASE_URL, echo=SQL_ECHO)
 
 # Session factory. Each call to async_session() creates a new database session.
 # expire_on_commit=False means objects stay usable after commit (otherwise

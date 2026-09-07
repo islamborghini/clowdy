@@ -449,22 +449,143 @@ It's a small quality-of-life detail, but without it, every Docker call would fai
 
 ---
 
-## 17. What I'd do differently at production scale
+## 17. What I skipped, and what I came back for
 
-These are things I deliberately skipped because they'd add complexity without teaching me more about serverless architecture:
+The three things at the top of this list turned out to be the interesting ones, so I built them. Sections 18 to 21 are why.
 
-1. **Container pooling**. Right now, every invocation creates and destroys a container. AWS Lambda keeps "warm" containers for subsequent calls. This would cut invocation latency from ~500ms to ~50ms.
+1. ~~**Container pooling**~~. Built. Containers now run `sleep infinity` and are reused via `docker exec`, pooled per worker by `(image, network)` with LRU eviction and an idle reaper. A warm invocation is ~20ms instead of ~500ms.
 
-2. **Postgres instead of SQLite**. For concurrent multi-user access, SQLite's single-writer lock becomes a bottleneck. Postgres with connection pooling would be the production choice.
+2. ~~**Postgres instead of SQLite**~~. Built. SQLite is still the default for single-node development; the compose stack runs Postgres because two control-plane replicas cannot share a SQLite file.
 
-3. **Secrets management**. Database URLs and env var values are stored in plaintext in SQLite. Production would use Vault or AWS Secrets Manager.
+3. ~~**Rate limiting / concurrency caps**~~. Built, as backpressure rather than rate limiting. Each worker caps its own concurrency and refuses past it; a saturated fleet returns 503 rather than queueing. Per-user quotas are still missing.
 
-4. **Async provisioning**. Database and image builds currently block the request. Production would return "provisioning" status immediately and use background workers + webhooks.
+Still skipped, deliberately:
 
-5. **Event-driven invocations**. Right now, functions are only triggered by HTTP requests. Real serverless platforms support cron schedules, queue events, database triggers, etc.
+4. **Secrets management**. Database URLs and env var values are stored in plaintext in SQLite. Production would use Vault or AWS Secrets Manager.
 
-6. **Multi-language runtimes**. Currently Python-only. Adding Node.js would mean a second base image, a second runner script, and runtime detection in the invoke flow.
+5. **Async provisioning**. Database and image builds currently block the request. Production would return "provisioning" status immediately and use background workers + webhooks.
 
-7. **Observability**. Structured logging, OpenTelemetry traces, Prometheus metrics. Currently there's `print()` debugging and invocation logs in SQLite.
+6. **Event-driven invocations**. Right now, functions are only triggered by HTTP requests. Real serverless platforms support cron schedules, queue events, database triggers, etc.
 
-8. **Rate limiting**. No protection against abuse. A user could invoke functions in a tight loop and exhaust Docker resources. Production would need per-user rate limits and concurrent invocation caps.
+7. **Multi-language runtimes**. Currently Python-only. Adding Node.js would mean a second base image, a second runner script, and runtime detection in the invoke flow.
+
+8. **Observability**. Structured logging, OpenTelemetry traces, Prometheus metrics. There is now a `/api/cluster` endpoint and a live cluster page, which covers "is the fleet healthy" but not "why was this one invocation slow."
+
+---
+
+## 18. Distributing execution: why a worker fleet?
+
+Everything up to this point ran in one process. One FastAPI app, one Docker daemon, one warm pool. That works, and it is a completely reasonable place to stop -- but it means the only way to handle more load is a bigger machine, and it means I had never actually built the interesting part: deciding *where* work runs.
+
+### Options considered
+
+| Approach | Scales how | Warm pool | Complexity |
+|---|---|---|---|
+| Single process (before) | Bigger machine | One, in-process | None |
+| **Control plane + worker fleet** | More workers | One per worker, placement-aware | Medium |
+| Every replica runs its own Docker | More replicas | Fragmented, no coordination | Low |
+| Kubernetes Jobs per invocation | Kubernetes does it | None -- a pod per call | High |
+
+### Why a control plane and a data plane
+
+The two halves have opposite operational needs, and once I saw that, the split drew itself.
+
+The control plane is ordinary stateless HTTP: read Postgres, verify a JWT, match a route, decide where work goes. Any replica serves any request. Nothing is lost if a replica dies.
+
+A worker owns a machine. It needs a Docker daemon, a writable container runtime, and disk for images. Its warm pool is per-node state that cannot be shared or moved. Killing it mid-invocation kills someone's function.
+
+Those want different infrastructure, different scaling signals, and different deploy strategies. Running them as one process means the API's memory usage and the execution fleet's capacity are the same number, which is wrong in both directions.
+
+### Why not just scale replicas that each run Docker
+
+This is the tempting shortcut, and it is worse than it looks. Every replica keeps its own warm pool, and the load balancer in front has no idea which replica holds a warm container for a given image. It round-robins, and each replica cold-starts the same function independently. Three replicas turn one warm pool into three, each with a third of the hit rate. The coordination is the value, and skipping it wastes exactly the thing warm pools exist for.
+
+### The part I am happiest with
+
+With no workers registered, the control plane executes locally. That is not a dev-mode flag -- it is the same fallback that keeps the API serving if the entire fleet disappears. It means `uvicorn app.main:app` is still a complete platform on my laptop, with no Redis, no Postgres, and no compose file, and I did not have to maintain two code paths to get that.
+
+---
+
+## 19. Placement: why consistent hashing with bounded loads?
+
+This is the decision the whole fleet design exists to make.
+
+### Options considered
+
+| Policy | Warm hit rate | Balance | Fails how |
+|---|---|---|---|
+| Round-robin | Terrible | Perfect | Every worker cold-starts every image |
+| Random | Terrible | Good | Same, with variance |
+| Least-outstanding-requests | Poor | Best | Ignores where warm containers are |
+| `hash(image) % worker_count` | Good | Poor | Adding a worker remaps every key at once |
+| **Consistent hash + bounded load** | Good | Good | Needs a balance factor to tune |
+
+### Why
+
+The thing that makes this problem different from ordinary load balancing is that the workers are not interchangeable. A worker holding a warm container for `clowdy-python-runtime` can serve that invocation in 20ms; one without it takes 700ms. A load balancer cannot see that, because the state lives inside the worker.
+
+So placement has to be application-aware, and the affinity key has to be the image rather than the function ID -- warm containers are reusable by any function sharing an image, since user code is injected at exec time. Hashing on the function would fragment the pool for nothing.
+
+Plain hashing then creates a hot spot: one popular image pins all its traffic to one node. Bounded loads fix that by walking the ring forward past any worker carrying more than 1.25x the fleet average. Affinity when there is room, spillover when there is not. It is the algorithm behind HAProxy's `hash-balance-factor` and Google's load balancer, and the reason I could implement it in 40 lines is that it is genuinely simple once you know it exists.
+
+### Why consistent hashing rather than modulo
+
+Modulo is one line shorter and catastrophic in exactly the moment that matters. Add a worker to a fleet of three and `hash % n` remaps roughly every key -- so an autoscaling event, the moment the fleet is under load, cold-starts everything at once. The ring only remaps the keys the changed worker owned. There is a test asserting this, because it is the entire reason for the extra 30 lines.
+
+---
+
+## 20. Cluster state: why Redis?
+
+The fleet needs shared state: which workers exist, and how loaded each one is.
+
+### Options considered
+
+| Store | Failure detection | Extra service | Hot-path cost |
+|---|---|---|---|
+| **Redis with TTL keys** | Key expiry | Yes | Sub-millisecond |
+| Postgres table + heartbeat column | `DELETE WHERE stale` on a timer | No (already there) | A write per dispatch |
+| In-memory per replica | None -- each replica sees its own view | No | Free, and wrong |
+| Consul / etcd | Built-in | Yes, a heavy one | Low |
+| Gossip between workers | Built-in | No | Complex to get right |
+
+### Why Redis
+
+Failure detection reduces to a TTL, and that is the whole appeal. A worker writes a key with a 15 second expiry every 5 seconds. If it dies, the key expires and it is gone from the ring. There is no failure detector to write, no timeout logic, no leader deciding who is dead. Redis expiry is the failure detector.
+
+Postgres was genuinely tempting since it is already in the stack, and for membership alone it would be fine. What pushed me off it is the in-flight counters: those are incremented and decremented on every single dispatch, and putting that write volume through the same database serving the API is how you turn a placement optimisation into a bottleneck.
+
+I did not reach for Consul or etcd because they solve a problem I do not have. Those are for state that must be *correct* under partition. Mine is state that is allowed to be a few seconds stale, because being wrong costs one retry. Paying for consensus to protect data that regenerates itself every 15 seconds is the wrong trade.
+
+### The mistake I made first
+
+My first version had workers report their own in-flight count in the heartbeat, with no Redis counters. It is simpler and it is wrong: heartbeats are 5 seconds apart, so under a burst every control-plane replica sees the same stale zeros and piles onto the same worker. The fix is layered rather than clever -- fast Redis counters for placement quality, and the worker enforcing its own limit with a 429 for correctness. The scheduler optimises, the worker guarantees.
+
+---
+
+## 21. Deployment: why Fargate for the control plane and EC2 for workers?
+
+### Options considered
+
+| Target | Control plane | Workers | Why not both |
+|---|---|---|---|
+| **Fargate + EC2 ASG** | Fargate | EC2 | -- |
+| All Fargate | Fargate | Fargate | No Docker daemon in a Fargate task |
+| All EC2 | EC2 | EC2 | Managing instances for stateless HTTP is pointless work |
+| EKS | Pods | Pods with a socket mount | A control plane of its own to operate |
+| Lambda | Lambda | Lambda | Cannot run Docker inside Lambda |
+
+### Why the split
+
+A worker's entire job is to create containers and exec into them, which needs a Docker daemon. Fargate gives a task no daemon, no socket, and no privileged mode -- there is nothing to mount. So the data plane has to own its host.
+
+The control plane has the opposite profile. It is stateless HTTP with no host dependency, which is exactly what Fargate is for, and handing AWS its capacity planning means scaling the API has nothing to do with scaling execution capacity.
+
+What convinced me this was right rather than a compromise is that AWS makes the same split for Lambda itself: the invoke front end is a managed service, and the workers are EC2 hosts running Firecracker. The thing that runs serverless functions is not itself serverless, and it cannot be.
+
+### Why there is no load balancer in front of the workers
+
+This is the question I expect to be asked, and the answer is section 19. An ALB would round-robin, which is precisely the behaviour that destroys warm affinity. The control plane has to address individual workers, so workers register their own IPs and are called directly. Service discovery instead of load balancing, because the placement decision is the product.
+
+### Why two Terraform stacks
+
+`infra/terraform` is the architecture and costs about $110/month idle, most of it fixed cost for an ALB, a NAT gateway, RDS, and ElastiCache. That is a lot to leave running to prove a point. `infra/terraform-single-node` runs the identical compose topology on one EC2 instance for about $15/month, or free on a `t3.micro` -- still two control-plane replicas, three workers, and a real scheduler between them. What it gives up is surviving the loss of the machine, which for this project is an acceptable thing to give up.

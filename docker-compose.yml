@@ -1,0 +1,163 @@
+# Clowdy, running as the distributed system it is meant to be.
+#
+#   browser -> frontend (nginx, :3000)
+#                 |
+#                 +-- /api -> lb (nginx, least_conn) -> control-plane x2
+#                                                          |
+#                              Redis (worker registry, in-flight counters)
+#                              Postgres (projects, functions, invocations)
+#                                                          |
+#                                          scheduler picks a worker
+#                                                          |
+#                                              worker x3 -> Docker -> function containers
+#
+# Bring it up with:
+#   docker compose up --build --scale worker=3
+#
+# Every service here has a named counterpart in infra/terraform. See
+# docs/architecture.md for the mapping.
+
+name: clowdy
+
+services:
+  # --- Data stores -------------------------------------------------------
+
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: clowdy
+      POSTGRES_PASSWORD: clowdy
+      POSTGRES_DB: clowdy
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Compose starts containers in order but does not wait for readiness
+      # without this. Migrations racing an unready Postgres is the single
+      # most common way a compose stack "randomly" fails to come up.
+      test: ["CMD-SHELL", "pg_isready -U clowdy"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    # Registry data is entirely reconstructible from worker heartbeats within
+    # one TTL, so persistence would be pure cost.
+    command: redis-server --save "" --appendonly no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  # --- One-shot jobs -----------------------------------------------------
+
+  migrate:
+    build: ./backend
+    command: alembic upgrade head
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clowdy:clowdy@postgres:5432/clowdy
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # Builds the base image that every function container starts from, and tags
+  # it where the workers look for it. Compose builds it on the same daemon the
+  # workers drive, so there is nothing to push or pull.
+  #
+  # The container itself does nothing -- building is the point, and a service
+  # is how Compose is asked to build. It exits 0 immediately and the workers
+  # wait on that.
+  runtime-image:
+    build: ./backend/docker/runtimes/python
+    image: clowdy-python-runtime
+    command: ["python", "-c", "pass"]
+    restart: "no"
+
+  # --- Control plane -----------------------------------------------------
+
+  control-plane:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    # Needs the Docker socket to build per-project dependency images. On ECS
+    # this is the one service that would keep needing an EC2 launch type or a
+    # separate build task; see docs/architecture.md.
+    user: root
+    environment:
+      DATABASE_URL: postgresql+asyncpg://clowdy:clowdy@postgres:5432/clowdy
+      REDIS_URL: redis://redis:6379/0
+      FRONTEND_URL: http://localhost:3000
+      # The migrate job owns the schema. Replicas running migrations
+      # concurrently is a deadlock waiting for a demo day.
+      RUN_MIGRATIONS: "false"
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      CLERK_JWKS_URL: ${CLERK_JWKS_URL:-}
+      NEON_API_KEY: ${NEON_API_KEY:-}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    deploy:
+      replicas: 2
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:8000/api/health')\""]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  lb:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./infra/lb/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      - control-plane
+
+  # --- Data plane --------------------------------------------------------
+
+  worker:
+    build: ./backend
+    command: uvicorn app.worker.main:app --host 0.0.0.0 --port 9000
+    # Root for the Docker socket. A production fleet would instead run each
+    # worker on its own host with the agent in the `docker` group, or behind a
+    # socket proxy that only exposes container create/exec.
+    user: root
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      # Each replica gets a distinct hostname from Compose, which becomes both
+      # its registry ID and the address the dispatcher calls. No coordination,
+      # no assigned IDs, no config per replica.
+      WORKER_CONCURRENCY: 4
+      WORKER_TTL_SECONDS: 15
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      redis:
+        condition: service_healthy
+      runtime-image:
+        condition: service_completed_successfully
+    deploy:
+      replicas: 3
+
+  # --- Frontend ----------------------------------------------------------
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Empty means same-origin: the browser calls /api on the frontend's
+        # own nginx, which proxies to the LB. No CORS, no hardcoded host.
+        VITE_API_URL: ""
+        VITE_CLERK_PUBLISHABLE_KEY: ${VITE_CLERK_PUBLISHABLE_KEY:-}
+    ports:
+      - "3000:80"
+    depends_on:
+      - lb
+
+volumes:
+  pgdata:

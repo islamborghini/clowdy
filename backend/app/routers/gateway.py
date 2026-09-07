@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.models import Function, Invocation, Project, Route
+from app.models import Function, FunctionVersion, Invocation, Project, Route
 from app.services.context import resolve_context
 
 router = APIRouter(prefix="/api/gateway", tags=["gateway"])
@@ -170,13 +170,21 @@ async def _handle_gateway(
         "body": body,
     }
 
-    # Step 6: Resolve execution context (env vars, custom image, DATABASE_URL)
+    # Step 6: Resolve active version's code
+    version = await db.get(FunctionVersion, (fn.id, fn.active_version))
+    if not version:
+        return JSONResponse(
+            status_code=500,
+            content={"error": "Active version not found"},
+        )
+
+    # Step 7: Resolve execution context (env vars, custom image, DATABASE_URL)
     ctx = await resolve_context(project.id, db)
 
-    # Step 7: Run the function via InvokeService
+    # Step 8: Run the function via InvokeService
     invoke_service = request.app.state.invoke_service
     result = await invoke_service.invoke(
-        code=fn.code,
+        code=version.code,
         input_data=event,
         env_vars=ctx.env_vars,
         function_name=fn.name,
@@ -184,7 +192,14 @@ async def _handle_gateway(
         network_enabled=fn.network_enabled,
     )
 
-    # Step 8: Save invocation log with gateway metadata
+    if result.get("throttled"):
+        raise HTTPException(
+            status_code=503,
+            detail=result["output"],
+            headers={"Retry-After": "1"},
+        )
+
+    # Step 9: Save invocation log with gateway metadata
     invocation = Invocation(
         function_id=fn.id,
         input=json.dumps(event),
@@ -195,6 +210,8 @@ async def _handle_gateway(
         ),
         status="success" if result["success"] else "error",
         duration_ms=result["duration_ms"],
+        worker_id=result.get("worker_id") or "unplaced",
+        cold_start=bool(result.get("cold_start")),
         source="gateway",
         http_method=request.method,
         http_path=request_path,
@@ -202,7 +219,7 @@ async def _handle_gateway(
     db.add(invocation)
     await db.commit()
 
-    # Step 9: Build the HTTP response
+    # Step 10: Build the HTTP response
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["output"])
 

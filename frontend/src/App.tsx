@@ -11,6 +11,7 @@
  *   /sign-in         -> Clerk sign-in page
  *   /sign-up         -> Clerk sign-up page
  *   /                -> Dashboard (overview stats)
+ *   /cluster         -> Live worker fleet and placement policy
  *   /functions       -> List of all deployed functions
  *   /functions/new   -> Create a new function (code editor)
  *   /functions/:id   -> View/edit a specific function and its logs
@@ -19,6 +20,7 @@ import { BrowserRouter, Routes, Route } from "react-router"
 import { AuthProvider, AuthGuard, SignIn, SignUp } from "@/components/auth/AuthProvider"
 import { Layout } from "@/components/layout/Layout"
 import { Dashboard } from "@/pages/Dashboard"
+import { Cluster } from "@/pages/Cluster"
 import { Projects } from "@/pages/Projects"
 import { CreateProject } from "@/pages/CreateProject"
 import { ProjectDetail } from "@/pages/ProjectDetail"
@@ -58,6 +60,7 @@ function App() {
             }
           >
             <Route path="/" element={<Dashboard />} />
+            <Route path="/cluster" element={<Cluster />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/new" element={<CreateProject />} />
             <Route path="/projects/:id" element={<ProjectDetail />} />

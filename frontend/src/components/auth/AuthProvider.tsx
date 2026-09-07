@@ -32,8 +32,16 @@ const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 function TokenInjector({ children }: { children: React.ReactNode }) {
   const { getToken } = useAuth()
   const getTokenRef = useRef(getToken)
-  getTokenRef.current = getToken
 
+  // Keep the ref current in an effect rather than during render. Mutating a
+  // ref while rendering is not safe under StrictMode or concurrent rendering,
+  // where a render can be thrown away and re-run.
+  useEffect(() => {
+    getTokenRef.current = getToken
+  }, [getToken])
+
+  // Registered once. Reading through the ref means apiFetch always calls
+  // Clerk's latest getToken without this effect having to re-run.
   useEffect(() => {
     setTokenGetter(() => getTokenRef.current())
   }, [])

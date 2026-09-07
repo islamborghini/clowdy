@@ -18,6 +18,7 @@ import { CodeEditor } from "@/components/functions/CodeEditor"
 import {
   api,
   type FunctionResponse,
+  type FunctionVersionResponse,
   type InvocationResponse,
 } from "@/lib/api"
 
@@ -45,6 +46,12 @@ export function FunctionDetail() {
   const [invokeResult, setInvokeResult] = useState<string | null>(null)
   const [invokeError, setInvokeError] = useState("")
 
+  // Version state
+  const [versions, setVersions] = useState<FunctionVersionResponse[]>([])
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null)
+  const [versionCode, setVersionCode] = useState<string | null>(null)
+  const [settingActive, setSettingActive] = useState(false)
+
   // Invocation logs state
   const [invocations, setInvocations] = useState<InvocationResponse[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
@@ -66,6 +73,48 @@ export function FunctionDetail() {
       .catch((err) => setError(err.message))
       .finally(() => setLoading(false))
   }, [id])
+
+  // Fetch versions on mount
+  useEffect(() => {
+    if (!id) return
+    api.functions.versions(id).then((v) => {
+      setVersions(v)
+    })
+  }, [id])
+
+  // When a different version is selected from the dropdown, fetch its code
+  async function handleVersionChange(ver: number) {
+    if (!fn || !id) return
+    setSelectedVersion(ver)
+    if (ver === fn.active_version) {
+      setVersionCode(null)
+    } else {
+      const v = versions.find((v) => v.version === ver)
+      setVersionCode(v?.code ?? null)
+    }
+  }
+
+  // Make the currently selected version the active one
+  async function handleMakeActive() {
+    if (!id || selectedVersion === null) return
+    setSettingActive(true)
+    try {
+      const updated = await api.functions.setActiveVersion(id, selectedVersion)
+      setFn(updated)
+      setVersionCode(null)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to set version")
+    } finally {
+      setSettingActive(false)
+    }
+  }
+
+  // Whether we're viewing a non-active version
+  const viewingOldVersion =
+    selectedVersion !== null && fn !== null && selectedVersion !== fn.active_version
+
+  // The code to display: old version code if browsing, otherwise active code
+  const displayCode = viewingOldVersion && versionCode !== null ? versionCode : fn?.code ?? ""
 
   // Fetch invocation logs on mount and after each invocation
   function loadInvocations() {
@@ -102,7 +151,11 @@ export function FunctionDetail() {
         code: editCode,
       })
       setFn(updated)
+      setSelectedVersion(updated.active_version)
+      setVersionCode(null)
       setEditing(false)
+      // Refresh versions list so the dropdown shows the new version
+      api.functions.versions(id).then(setVersions)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save")
     } finally {
@@ -191,7 +244,37 @@ export function FunctionDetail() {
             {fn.status}
           </Badge>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
+          {versions.length > 0 && (
+            <div className="flex items-center gap-2">
+              <select
+                value={selectedVersion ?? fn.active_version}
+                onChange={(e) => handleVersionChange(Number(e.target.value))}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring"
+              >
+                {versions.map((v) => (
+                  <option key={v.version} value={v.version}>
+                    v{v.version}{v.version === fn.active_version ? " (active)" : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedVersion !== null && selectedVersion === fn.active_version && (
+                <span className="text-xs text-gray-500" style={{ fontSize: "0.75rem" }}>
+                  active version
+                </span>
+              )}
+            </div>
+          )}
+          {viewingOldVersion && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleMakeActive}
+              disabled={settingActive}
+            >
+              {settingActive ? "Setting..." : "Make Active Version"}
+            </Button>
+          )}
           {editing ? (
             <>
               <Button variant="outline" onClick={() => setEditing(false)}>
@@ -203,7 +286,7 @@ export function FunctionDetail() {
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={startEditing}>
+              <Button variant="outline" onClick={startEditing} disabled={viewingOldVersion}>
                 Edit
               </Button>
               <Button variant="destructive" onClick={handleDelete}>
@@ -335,7 +418,7 @@ export function FunctionDetail() {
           <CardContent>
             <div className="overflow-hidden rounded-md border">
               <CodeEditor
-                value={editing ? editCode : fn.code}
+                value={editing ? editCode : displayCode}
                 onChange={editing ? setEditCode : undefined}
                 readOnly={!editing}
               />

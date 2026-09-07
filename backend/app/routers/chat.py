@@ -28,9 +28,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.models import Function, Invocation
+from app.models import Function, FunctionVersion, Invocation
 from app.services.ai_agent import chat_with_tools
-from app.services.invoke_service import InvokeService
+from app.services.dispatcher import Dispatcher
 
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -123,11 +123,19 @@ async def _tool_create_function(db: AsyncSession, user_id: str, args: dict) -> d
     fn = Function(
         name=args["name"],
         description=args.get("description", ""),
-        code=args["code"],
         runtime="python",
         user_id=user_id,
+        active_version=1,
     )
     db.add(fn)
+    await db.flush()
+
+    version = FunctionVersion(
+        function_id=fn.id,
+        version=1,
+        code=args["code"],
+    )
+    db.add(version)
     await db.commit()
     await db.refresh(fn)
     return {
@@ -166,7 +174,7 @@ async def _tool_list_functions(db: AsyncSession, user_id: str) -> dict:
 
 
 async def _tool_invoke_function(
-    db: AsyncSession, user_id: str, args: dict, invoke_service: InvokeService,
+    db: AsyncSession, user_id: str, args: dict, invoke_service: Dispatcher,
 ) -> dict:
     """Invoke a function via the InvokeService (warm/cold container path)."""
     fn = await db.get(Function, args["function_id"])
@@ -176,8 +184,12 @@ async def _tool_invoke_function(
     if fn.status != "active":
         return {"error": f"Function is not active (status: {fn.status})"}
 
+    version = await db.get(FunctionVersion, (fn.id, fn.active_version))
+    if not version:
+        return {"error": "Active version not found"}
+
     input_data = args.get("input", {})
-    result = await invoke_service.invoke(code=fn.code, input_data=input_data)
+    result = await invoke_service.invoke(code=version.code, input_data=input_data)
 
     # Save invocation log
     invocation = Invocation(
@@ -240,7 +252,14 @@ async def _tool_update_function(db: AsyncSession, user_id: str, args: dict) -> d
     if "description" in args and args["description"]:
         fn.description = args["description"]
     if "code" in args and args["code"]:
-        fn.code = args["code"]
+        new_version_num = fn.active_version + 1
+        new_version = FunctionVersion(
+            function_id=fn.id,
+            version=new_version_num,
+            code=args["code"],
+        )
+        db.add(new_version)
+        fn.active_version = new_version_num
 
     await db.commit()
     await db.refresh(fn)

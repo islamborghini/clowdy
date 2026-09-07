@@ -25,13 +25,26 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
-from app.config import FRONTEND_URL
+from app.config import FRONTEND_URL, REDIS_URL, RUN_MIGRATIONS, WORKER_TTL_SECONDS
 from app.database import engine, get_db
 from app.models import Function, Invocation
-from app.routers import chat, database, env_vars, functions, gateway, invoke, projects, requirements, routes
+from app.routers import (
+    chat,
+    cluster,
+    database,
+    env_vars,
+    functions,
+    gateway,
+    invoke,
+    projects,
+    requirements,
+    routes,
+)
 from app.services.assignment_service import AssignmentService
+from app.services.dispatcher import Dispatcher
 from app.services.invoke_service import InvokeService
 from app.services.placement_service import PlacementService
+from app.services.registry import WorkerRegistry
 
 
 def _run_migrations() -> None:
@@ -52,35 +65,49 @@ async def lifespan(app: FastAPI):
     Application lifespan handler.
 
     Startup:
-    - Run Alembic migrations
-    - Initialize the service layer (Placement, Assignment, Invoke)
-    - Start the background reaper for warm container cleanup
+    - Run Alembic migrations (unless a separate migrate job owns the schema)
+    - Connect to the worker registry
+    - Build the dispatcher, with a local executor as the single-node fallback
+    - Start the background reaper for the local warm pool
 
     Shutdown:
-    - Stop the reaper
-    - Destroy all pooled containers
-    - Clean up the database connection pool
+    - Stop the reaper, destroy local containers, close Redis and the DB pool
     """
-    _run_migrations()
+    if RUN_MIGRATIONS:
+        _run_migrations()
 
-    # Initialize the service layer (mirrors AWS Lambda's architecture)
+    # The registry is the control plane's view of the worker fleet. Without
+    # Redis it stays empty, and the dispatcher runs everything in-process.
+    registry = WorkerRegistry(REDIS_URL, WORKER_TTL_SECONDS)
+    await registry.connect()
+    app.state.registry = registry
+
+    # Local execution path. On a laptop this IS the platform; in a cluster it
+    # is the fallback that keeps the API usable if every worker is gone.
     placement = PlacementService()
     assignment = AssignmentService(max_pool_size=10, idle_timeout=300)
-    app.state.invoke_service = InvokeService(assignment, placement)
+    local = InvokeService(assignment, placement)
 
-    # Start background reaper to clean up idle warm containers
+    # Routers only ever see this object, so they are identical whether the
+    # code runs here or three machines away.
+    app.state.invoke_service = Dispatcher(registry, local)
+
     reaper_task = asyncio.create_task(assignment.run_reaper())
-    logger.info("Service layer initialized (warm container pool: max=10, idle_timeout=300s)")
+    logger.info(
+        "Control plane ready (registry=%s, local pool: max=10, idle_timeout=300s)",
+        "redis" if registry.enabled else "disabled",
+    )
 
     yield
 
-    # Shutdown: stop reaper, destroy all warm containers, close DB
     reaper_task.cancel()
     try:
         await reaper_task
     except asyncio.CancelledError:
         pass
+    await app.state.invoke_service.aclose()
     assignment.shutdown()
+    await registry.aclose()
     await engine.dispose()
 
 
@@ -122,6 +149,7 @@ app.include_router(functions.router)
 app.include_router(invoke.router)
 app.include_router(chat.router)
 app.include_router(gateway.router)
+app.include_router(cluster.router)
 
 
 @app.get("/api/health")
