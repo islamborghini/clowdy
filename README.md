@@ -33,44 +33,64 @@ Design decisions and the options rejected along the way:
 ## How It Works
 
 ```
-   browser / curl
-        |
-        v
-   nginx (frontend)                serves the SPA, proxies /api
-        |
-        v
-   nginx (load balancer)           least_conn across control-plane replicas
-        |
-   +----+----------------+
-   |                     |
-control-plane-1     control-plane-2
-   |                     |
-   |  Postgres           |         projects, functions, versions, invocations
-   |  Redis              |         worker registry, in-flight counters
-   |                     |
-   +----+----------------+
-        |
-        v
-   scheduler                       consistent hash on image + bounded load
-        |
-   +----+--------+--------+
-   |             |        |
-worker-1     worker-2  worker-3    each owns a Docker daemon and a warm pool
-   |
-   v
-warm container? -- yes --> docker exec  (~20ms)
-                -- no  --> create, then exec  (~700ms cold start)
-        |
-        v
-   inject: code as /app/function.py, input as INPUT_JSON,
-           project env vars, DATABASE_URL
-        |
-        v
-   run with 128MB RAM, 0.5 CPU, no network, 30s hard timeout
-        |
-        v
-   capture stdout as JSON, return the container to the pool,
-   log the invocation with which worker ran it and whether it was cold
+Write Python code in Monaco editor (browser)
+                    |
+                    v
+       Save to SQLite via FastAPI
+       (each save creates a new FunctionVersion row;
+        the function points at its active_version)
+                    |
+          +---------+---------+
+          |                   |
+     Direct invoke       Gateway invoke
+  POST /api/invoke/:id   ANY /api/gateway/:slug/:path
+          |                   |
+          |              Match route (method + path pattern)
+          |              Extract path params (:id -> {id: "123"})
+          |                   |
+          +---------+---------+
+                    |
+                    v
+         Resolve execution context
+         (env vars, custom image, DATABASE_URL)
+                    |
+                    v
+         Invoke Service orchestrates the call
+                    |
+          +---------+---------+
+          |                   |
+   Assignment Service    Placement Service
+   (warm container       (cold start: build image
+    pool, keyed by        if needed, create new
+    image+network)        container)
+          |                   |
+          +---------+---------+
+                    |
+                    v
+                Worker Service
+         (docker exec into the container)
+                    |
+                    v
+         Inject into container:
+         - Active version code as /app/function.py
+         - Input data as INPUT_JSON env var
+         - Project env vars (KEY=value)
+         - DATABASE_URL (if Neon database provisioned)
+                    |
+                    v
+         Run with resource limits:
+         - 128MB RAM, 0.5 CPU, 30s timeout
+         - Network: disabled by default,
+           opt-in per function via toggle
+                    |
+                    v
+         Capture stdout (JSON result)
+         Release container back to warm pool
+         (or destroy if pool is full)
+                    |
+                    v
+         Log invocation (input, output, status, duration)
+         Return result to caller
 ```
 
 ## Distributed Execution
@@ -157,6 +177,12 @@ test runs.
 
 - **Functions**: Create, edit, and delete Python functions through a Monaco code editor (same editor as VS Code). Test functions with JSON input directly from the browser and see results immediately.
 
+- **Function Versions**: Every code save creates a new immutable version. A version dropdown in the editor lets you browse previous versions and roll back instantly by setting an older version as active -- no redeploy step. Each version stores its full code snapshot in the `function_versions` table.
+
+- **Per-Function Network Toggle**: Functions run with `network_disabled=True` by default. Flip the toggle in the function detail page to allow outbound network access for that specific function (for calling third-party APIs, fetching data, etc.). The warm container pool keys on network setting so toggling does not bleed network state between functions.
+
+- **Warm Container Pool**: An AWS Lambda-style invocation pipeline split into Assignment Service (warm container pool with LRU eviction and idle reaper), Placement Service (cold start container creation), and Worker Service (`docker exec` into a container to run user code). Warm hits skip container creation entirely, dramatically reducing per-invocation latency.
+
 - **API Gateway**: Map HTTP routes to functions using method + path patterns with parameter extraction. Define routes like `GET /users/:id` and Clowdy matches incoming requests, extracts parameters, and invokes the right function with a structured event object containing method, path, params, query, headers, and body.
 
 - **Environment Variables**: Per-project key-value pairs injected into function containers at runtime. Mark variables as secret to hide values in the UI. Access them via `os.environ["KEY"]` in your functions.
@@ -182,6 +208,9 @@ test runs.
 | Scaling | Worker ASG / `--scale worker=N` | Automatic | Automatic |
 | Backpressure | 503 at fleet capacity | Managed | Reserved concurrency + throttling |
 | API Gateway | Built-in route matching with path params | Filesystem routing (Next.js) | Separate API Gateway service |
+| Versioning | Auto-versioned, one-click rollback | Git commit per deploy | Versions + aliases |
+| Warm starts | Container pool (Assignment Service) | V8 isolate reuse | Firecracker microVM reuse |
+| Network egress | Per-function toggle (default off) | Always on | VPC config / always on |
 | Env vars | Per-project UI with secret masking | Dashboard per-environment | Console / SSM / Secrets Manager |
 | Database | One-click Neon PostgreSQL | Neon/Supabase integration (separate) | RDS/DynamoDB (separate services) |
 | AI assistant | Built-in (create/invoke/manage functions) | None | Amazon Q (separate service) |
@@ -236,13 +265,13 @@ clowdy/
       auth.py                    # Clerk JWT verification
       config.py                  # Environment and cluster configuration
       database.py                # SQLAlchemy async engine and session
-      models.py                  # ORM models
+      models.py                  # ORM models (Project, Function, FunctionVersion, Invocation, EnvVar, Route)
       schemas.py                 # Pydantic request/response schemas
       worker/
         main.py                  # Data plane: POST /run, GET /health, heartbeat
       routers/
         projects.py              # Project CRUD
-        functions.py             # Function CRUD and versions
+        functions.py             # Function CRUD + version listing and rollback
         invoke.py                # Function execution and invocation logs
         gateway.py               # HTTP API gateway with route matching
         cluster.py               # Live fleet state and placement policy
@@ -251,26 +280,25 @@ clowdy/
         routes.py                # HTTP route definitions
         requirements.py          # pip dependency management
         database.py              # Neon database provisioning
-      services/
-        dispatcher.py            # Routes invocations across the fleet, fails over
-        scheduler.py             # Consistent hashing with bounded loads
-        registry.py              # Redis worker registry and heartbeats
-        invoke_service.py        # Local execution: warm path, cold path
-        assignment_service.py    # Warm container pool (LRU + idle reaper)
-        placement_service.py     # Container creation and destruction
-        worker_service.py        # docker exec, timeout enforcement, output parsing
-        context.py               # Resolves env vars, image, DATABASE_URL
-        image_builder.py         # Per-project images for pip dependencies
+        gateway.py               # HTTP API gateway with route matching
+      services/                  # AWS Lambda-style execution pipeline
+        invoke_service.py        # Orchestrator: warm-or-cold path, exec, release
+        assignment_service.py    # Warm container pool, LRU eviction, idle reaper
+        placement_service.py     # Cold start container creation
+        worker_service.py        # docker exec runner (no container lifecycle)
+        context.py               # Resolves env vars, image, DATABASE_URL per invoke
+        image_builder.py         # Custom Docker image building for pip deps
         ai_agent.py              # Groq integration and tool definitions
         neon_service.py          # Neon PostgreSQL API client
-    docker/runtimes/python/
-      Dockerfile                 # Base function runtime (python:3.12-slim)
-      runner.py                  # Imports user code and calls handler()
-    tests/
-      test_scheduler.py          # Placement: affinity, spillover, failover
-      test_warm_pool.py          # Pool reuse, LRU eviction, idle reaping
-      test_gateway_matching.py   # Route pattern matching and param extraction
-    alembic/versions/            # 10 migrations (001-010)
+    docker/
+      runtimes/
+        python/
+          Dockerfile             # Base runtime image (python:3.12-slim)
+          runner.py              # Wrapper that imports and calls handler()
+    alembic/
+      versions/                  # 9 migration files (001-009)
+    requirements.txt             # Python dependencies
+    .env.local                   # API keys (git-ignored)
 
   frontend/
     Dockerfile                   # Multi-stage build, served by nginx
@@ -532,9 +560,11 @@ IAM, and health-check choices.
 |---|---|---|---|
 | POST | `/api/functions` | Yes | Create a function |
 | GET | `/api/functions` | Yes | List all functions |
-| GET | `/api/functions/:id` | Yes | Get a function |
-| PUT | `/api/functions/:id` | Yes | Update a function |
+| GET | `/api/functions/:id` | Yes | Get a function (returns active version code) |
+| PUT | `/api/functions/:id` | Yes | Update a function (new code creates a new version) |
 | DELETE | `/api/functions/:id` | Yes | Delete a function |
+| GET | `/api/functions/:id/versions` | Yes | List all versions, newest first |
+| PUT | `/api/functions/:id/versions/:version` | Yes | Set a specific version as active (rollback) |
 
 ### Invocation
 
@@ -592,14 +622,14 @@ IAM, and health-check choices.
 
 ### Container Isolation
 
-Every function runs in an ephemeral Docker container with strict limits:
+Every function runs in a Docker container with strict limits:
 
-- **No network** -- `network_disabled=True` prevents all outbound connections
+- **Network off by default** -- `network_disabled=True` unless the function explicitly opts in via the per-function network toggle. The warm pool keys on this setting so a network-enabled function can never reuse a network-disabled container or vice versa.
 - **Memory cap** -- 128MB limit prevents memory exhaustion
 - **CPU cap** -- 0.5 cores prevents CPU monopolization
 - **Timeout** -- 30 seconds maximum, container killed after
 - **No volume mounts** -- code copied via `put_archive`, no host filesystem access
-- **Ephemeral** -- container destroyed after every execution, no persistent state
+- **Warm pool reuse** -- containers are kept warm for fast invocations but capped in size (LRU eviction) and reaped after idle timeout. Code is copied in fresh on every invocation so versions cannot leak between calls.
 
 ### Fleet Isolation
 
