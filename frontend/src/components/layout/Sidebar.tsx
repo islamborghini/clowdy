@@ -14,6 +14,7 @@ const navItems = [
   { to: "/", label: "Dashboard" },
   { to: "/projects", label: "Projects" },
   { to: "/functions", label: "Functions" },
+  { to: "/cluster", label: "Cluster" },
 ]
 
 export function Sidebar() {

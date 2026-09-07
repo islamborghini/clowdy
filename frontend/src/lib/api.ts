@@ -75,6 +75,9 @@ export const api = {
   /** Fetch dashboard statistics (function count, invocation count, etc.). */
   stats: () => apiFetch<StatsResponse>("/api/stats"),
 
+  /** Fetch live worker fleet state (which nodes are up, load, warm pools). */
+  cluster: () => apiFetch<ClusterResponse>("/api/cluster"),
+
   /**
    * Send a message to the AI agent. Pass the full conversation history
    * so the AI has context of previous messages.
@@ -375,6 +378,10 @@ export interface InvokeResponse {
   error?: string
   duration_ms: number
   invocation_id: string
+  /** Which fleet node ran it. "local" when the control plane ran it itself. */
+  worker_id?: string
+  /** True when a new container had to be created rather than reused. */
+  cold_start?: boolean
 }
 
 /** A single invocation log entry returned by the backend. */
@@ -386,6 +393,8 @@ export interface InvocationResponse {
   status: string
   duration_ms: number
   source: string
+  worker_id: string
+  cold_start: boolean
   http_method: string | null
   http_path: string | null
   created_at: string
@@ -399,6 +408,42 @@ export interface StatsResponse {
   total_invocations: number
   success_rate: number
   avg_duration_ms: number
+}
+
+// --- Cluster types ---
+
+/** One worker node as reported by the registry. */
+export interface ClusterWorker {
+  id: string
+  url: string
+  capacity: number
+  inflight: number
+  /** Percent of capacity currently in use. */
+  load: number
+  warm_containers: number
+  invocations_total: number
+  invocations_since_start: number
+  cold_starts_since_start: number
+  uptime_seconds: number
+}
+
+/** Live fleet state from GET /api/cluster. */
+export interface ClusterResponse {
+  /** "distributed" when workers are registered, "single-node" otherwise. */
+  mode: "distributed" | "single-node"
+  redis_enabled: boolean
+  policy: {
+    algorithm: string
+    affinity_key: string
+    virtual_nodes: number
+    balance_factor: number
+  }
+  totals: {
+    invocations: number
+    cold_starts: number
+    warm_rate: number
+  }
+  workers: ClusterWorker[]
 }
 
 // --- Chat types ---
