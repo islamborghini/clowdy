@@ -12,3 +12,10 @@ venv/
 .venv/
 
 Memory.md
+
+# Terraform / OpenTofu
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+*.tfvars

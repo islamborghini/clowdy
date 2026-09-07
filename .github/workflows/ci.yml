@@ -1,0 +1,127 @@
+# CI for Clowdy.
+#
+# Three jobs, run in parallel because none of them depends on another:
+#   backend   unit tests plus a migration round-trip
+#   frontend  type check and production build
+#   infra     Terraform formatting and validation, and a compose config parse
+#
+# The migration round-trip is the job most worth having. `alembic upgrade head`
+# on an empty database catches the failure mode that actually happens: a
+# migration that works against the developer's existing database and breaks on
+# a fresh one.
+
+name: CI
+
+on:
+  push:
+    branches: [main, version_control]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+
+      - run: pip install -r requirements-dev.txt
+
+      - name: Unit tests
+        run: pytest -q
+
+      - name: Migrations apply cleanly to an empty database
+        run: alembic upgrade head
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./ci.db
+
+      - name: Migrations reverse cleanly
+        run: alembic downgrade base
+        env:
+          DATABASE_URL: sqlite+aiosqlite:///./ci.db
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - name: Type check and build
+        run: npm run build
+
+  infra:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.9.8"
+
+      - name: Terraform formatting
+        run: terraform fmt -check -recursive infra/
+
+      - name: Validate the production stack
+        working-directory: infra/terraform
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Validate the single-node stack
+        working-directory: infra/terraform-single-node
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Compose file parses
+        run: docker compose config --quiet
+
+  images:
+    runs-on: ubuntu-latest
+    # Only worth the minutes once the fast checks are green.
+    needs: [backend, frontend]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the backend image
+        run: docker build -t clowdy-backend ./backend
+
+      - name: Build the function runtime image
+        run: docker build -t clowdy-python-runtime ./backend/docker/runtimes/python
+
+      - name: Build the frontend image
+        run: docker build -t clowdy-frontend ./frontend
+
+      - name: Runtime image can execute a function
+        run: |
+          cat > /tmp/function.py <<'PY'
+          def handler(event):
+              return {"doubled": event["n"] * 2}
+          PY
+          result=$(docker run --rm \
+            -v /tmp/function.py:/app/function.py:ro \
+            -e INPUT_JSON='{"n": 21}' \
+            clowdy-python-runtime)
+          echo "$result"
+          test "$result" = '{"doubled": 42}'
