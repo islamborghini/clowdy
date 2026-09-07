@@ -42,3 +42,49 @@ CLERK_JWKS_URL = os.getenv("CLERK_JWKS_URL", "")
 # Neon API key for managed PostgreSQL databases.
 # Get a free key at https://console.neon.tech/account/api-keys
 NEON_API_KEY = os.getenv("NEON_API_KEY", "")
+
+
+# ---------------------------------------------------------------------------
+# Cluster configuration
+#
+# Clowdy runs as two node roles:
+#   control-plane -- the API, gateway, auth, and scheduler (this FastAPI app)
+#   worker        -- a data-plane node that owns a Docker daemon and a warm pool
+#
+# Workers register themselves in Redis with a TTL. The control plane reads that
+# registry to load-balance invocations. With no Redis and no workers registered,
+# the control plane falls back to executing locally, so single-machine
+# development still works with zero extra infrastructure.
+# ---------------------------------------------------------------------------
+
+# Redis holds the worker registry, per-worker in-flight counters, and rate
+# limits. Empty means "no cluster" -- run everything in this process.
+REDIS_URL = os.getenv("REDIS_URL", "")
+
+# Identity this node advertises in the registry. Defaults to the hostname,
+# which is the container ID under Docker Compose and the task ID on ECS.
+WORKER_ID = os.getenv("WORKER_ID", "") or os.uname().nodename
+
+# The address other nodes use to reach this worker's /run endpoint. Left empty,
+# the worker advertises its own routable IP on WORKER_PORT.
+WORKER_URL = os.getenv("WORKER_URL", "")
+
+# Port the worker serves on. Must match what uvicorn is bound to, or the
+# control plane will dispatch to an address nothing is listening on.
+WORKER_PORT = int(os.getenv("WORKER_PORT", "9000"))
+
+# Maximum concurrent invocations this worker accepts. The scheduler refuses to
+# place work on a worker already at capacity, which is what turns a queue into
+# backpressure instead of an unbounded pile of Docker execs.
+WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "8"))
+
+# Seconds a worker's registry entry survives without a heartbeat. A crashed
+# worker disappears from the ring after this long with no further action.
+WORKER_TTL_SECONDS = int(os.getenv("WORKER_TTL_SECONDS", "15"))
+
+# Run Alembic migrations on startup. Set false for control-plane replicas so a
+# single one-shot migrate job owns the schema instead of N replicas racing.
+RUN_MIGRATIONS = os.getenv("RUN_MIGRATIONS", "true").lower() != "false"
+
+# Log SQL statements. Noisy; off by default outside local development.
+SQL_ECHO = os.getenv("SQL_ECHO", "false").lower() == "true"

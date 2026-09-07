@@ -18,8 +18,11 @@ config = context.config
 
 # Override the sqlalchemy.url from alembic.ini with our app's config
 # so we have a single source of truth for the database URL.
-# Strip the async driver prefix since Alembic runs synchronously.
-_sync_url = DATABASE_URL.replace("+aiosqlite", "")
+#
+# Alembic runs synchronously, so the async driver has to be swapped out for
+# its sync equivalent: aiosqlite -> the stdlib sqlite3 driver, asyncpg ->
+# psycopg2. Same database, same URL, different driver.
+_sync_url = DATABASE_URL.replace("+aiosqlite", "").replace("+asyncpg", "+psycopg2")
 config.set_main_option("sqlalchemy.url", _sync_url)
 
 if config.config_file_name is not None:

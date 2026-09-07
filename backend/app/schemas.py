@@ -238,6 +238,8 @@ class InvocationResponse(BaseModel):
     status: str
     duration_ms: int
     source: str = "direct"
+    worker_id: str = "local"
+    cold_start: bool = False
     http_method: str | None = None
     http_path: str | None = None
     created_at: datetime

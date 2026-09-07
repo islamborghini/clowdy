@@ -192,7 +192,14 @@ async def _handle_gateway(
         network_enabled=fn.network_enabled,
     )
 
-    # Step 8: Save invocation log with gateway metadata
+    if result.get("throttled"):
+        raise HTTPException(
+            status_code=503,
+            detail=result["output"],
+            headers={"Retry-After": "1"},
+        )
+
+    # Step 9: Save invocation log with gateway metadata
     invocation = Invocation(
         function_id=fn.id,
         input=json.dumps(event),
@@ -203,6 +210,8 @@ async def _handle_gateway(
         ),
         status="success" if result["success"] else "error",
         duration_ms=result["duration_ms"],
+        worker_id=result.get("worker_id") or "unplaced",
+        cold_start=bool(result.get("cold_start")),
         source="gateway",
         http_method=request.method,
         http_path=request_path,
@@ -210,7 +219,7 @@ async def _handle_gateway(
     db.add(invocation)
     await db.commit()
 
-    # Step 9: Build the HTTP response
+    # Step 10: Build the HTTP response
     if not result["success"]:
         raise HTTPException(status_code=500, detail=result["output"])
 

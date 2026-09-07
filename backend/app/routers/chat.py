@@ -30,7 +30,7 @@ from app.auth import get_current_user
 from app.database import get_db
 from app.models import Function, FunctionVersion, Invocation
 from app.services.ai_agent import chat_with_tools
-from app.services.invoke_service import InvokeService
+from app.services.dispatcher import Dispatcher
 
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -174,7 +174,7 @@ async def _tool_list_functions(db: AsyncSession, user_id: str) -> dict:
 
 
 async def _tool_invoke_function(
-    db: AsyncSession, user_id: str, args: dict, invoke_service: InvokeService,
+    db: AsyncSession, user_id: str, args: dict, invoke_service: Dispatcher,
 ) -> dict:
     """Invoke a function via the InvokeService (warm/cold container path)."""
     fn = await db.get(Function, args["function_id"])

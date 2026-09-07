@@ -19,7 +19,7 @@ Models use SQLAlchemy 2.x modern syntax:
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import ForeignKey, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -31,6 +31,13 @@ def generate_id() -> str:
 def utcnow() -> datetime:
     """Return the current UTC time. Used as default value for timestamp columns."""
     return datetime.now(timezone.utc)
+
+
+# Every timestamp column uses this. The timezone=True matters in two places:
+# Postgres rejects an aware datetime written to a naive column outright, and a
+# naive timestamp serialised to JSON has no "Z", so `new Date(...)` in the
+# browser reads it as local time and renders every log entry hours off.
+UTC_TIMESTAMP = DateTime(timezone=True)
 
 
 class Base(DeclarativeBase):
@@ -62,8 +69,8 @@ class Project(Base):
     requirements_hash: Mapped[str] = mapped_column(default="")
     neon_project_id: Mapped[str] = mapped_column(default="")
     database_url: Mapped[str] = mapped_column(Text, default="")
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow, onupdate=utcnow)
 
     functions: Mapped[list["Function"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
@@ -97,8 +104,8 @@ class Function(Base):
     runtime: Mapped[str] = mapped_column(default="python")
     status: Mapped[str] = mapped_column(default="active")
     network_enabled: Mapped[bool] = mapped_column(default=False)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow, onupdate=utcnow)
 
     project: Mapped["Project | None"] = relationship(back_populates="functions")
     invocations: Mapped[list["Invocation"]] = relationship(
@@ -126,6 +133,8 @@ class Invocation(Base):
         output      - The function's return value (or error message)
         status      - "pending", "success", "error", or "timeout"
         duration_ms - How long the execution took in milliseconds
+        worker_id   - Which worker node executed it ("local" if in-process)
+        cold_start  - True if a new container had to be created for it
         created_at  - When the invocation happened
     """
 
@@ -140,9 +149,13 @@ class Invocation(Base):
     status: Mapped[str] = mapped_column(default="pending")
     duration_ms: Mapped[int] = mapped_column(default=0)
     source: Mapped[str] = mapped_column(default="direct")
+    # Which fleet node executed this. "local" when the control plane ran it
+    # itself (single-node mode). Indexed because the cluster view groups on it.
+    worker_id: Mapped[str] = mapped_column(default="local", index=True)
+    cold_start: Mapped[bool] = mapped_column(default=False)
     http_method: Mapped[str | None] = mapped_column(default=None)
     http_path: Mapped[str | None] = mapped_column(default=None)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow)
 
     # Reverse relationship: access the parent function from an invocation object.
     function: Mapped["Function"] = relationship(back_populates="invocations")
@@ -172,8 +185,8 @@ class EnvVar(Base):
     key: Mapped[str] = mapped_column()
     value: Mapped[str] = mapped_column(Text)
     is_secret: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow, onupdate=utcnow)
 
     project: Mapped["Project"] = relationship(back_populates="env_vars")
 
@@ -194,8 +207,8 @@ class FunctionVersion(Base):
     )
     version: Mapped[int] = mapped_column(primary_key=True)
     code: Mapped[str] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow, onupdate=utcnow)
 
     function: Mapped["Function"] = relationship(back_populates="versions")
 
@@ -227,8 +240,8 @@ class Route(Base):
     method: Mapped[str] = mapped_column()
     path: Mapped[str] = mapped_column()
     description: Mapped[str] = mapped_column(default="")
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(UTC_TIMESTAMP, default=utcnow, onupdate=utcnow)
 
     project: Mapped["Project"] = relationship(back_populates="routes")
     function: Mapped["Function"] = relationship(back_populates="routes")

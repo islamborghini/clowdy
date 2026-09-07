@@ -15,6 +15,9 @@ import tarfile
 
 TIMEOUT_SECONDS = 30
 
+# Exit code coreutils `timeout` uses when it kills the command.
+TIMEOUT_EXIT_CODE = 137  # 128 + SIGKILL(9); plain SIGTERM would be 124
+
 
 def _make_tar(filename: str, content: str) -> bytes:
     """
@@ -71,14 +74,26 @@ def execute(
     exec_env["INPUT_JSON"] = json.dumps(input_data)
     exec_env["FUNCTION_NAME"] = function_name
 
-    # 3. Execute runner.py inside the container
+    # 3. Execute runner.py inside the container.
+    #
+    # The timeout is enforced inside the container with coreutils `timeout`
+    # rather than around the exec call, because Docker's exec API has no
+    # timeout and killing the API call would leave the process running. A
+    # function that exceeds the limit is SIGKILLed, so the exec reports 137.
     exit_code, output = container.exec_run(
-        ["python", "/app/runner.py"],
+        ["timeout", "--signal=KILL", str(TIMEOUT_SECONDS), "python", "/app/runner.py"],
         environment=exec_env,
     )
 
     # 4. Parse the output
     stdout = output.decode("utf-8").strip()
+
+    if exit_code == TIMEOUT_EXIT_CODE:
+        return {
+            "success": False,
+            "output": f"Function timed out after {TIMEOUT_SECONDS}s",
+            "timeout": True,
+        }
 
     if exit_code != 0:
         error_msg = stdout or "Function exited with an error"

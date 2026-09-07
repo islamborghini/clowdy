@@ -28,6 +28,13 @@ from app.services.context import resolve_context
 router = APIRouter(prefix="/api", tags=["invoke"])
 
 
+def _status_of(result: dict) -> str:
+    """Map an execution result onto the invocation log's status column."""
+    if result["success"]:
+        return "success"
+    return "timeout" if result.get("timeout") else "error"
+
+
 @router.post("/invoke/{function_id}")
 async def invoke_function(
     function_id: str,
@@ -87,19 +94,31 @@ async def invoke_function(
         network_enabled=fn.network_enabled,
     )
 
-    # Step 5: Save the invocation log
+    # Step 6: Reject rather than queue when the whole fleet is saturated.
+    # A 503 with Retry-After is the honest answer; silently waiting would just
+    # move the queue from the platform into the caller's connection pool.
+    if result.get("throttled"):
+        raise HTTPException(
+            status_code=503,
+            detail=result["output"],
+            headers={"Retry-After": "1"},
+        )
+
+    # Step 7: Save the invocation log
     invocation = Invocation(
         function_id=function_id,
         input=json.dumps(body.input),
         output=json.dumps(result["output"]) if isinstance(result["output"], dict) else str(result["output"]),
-        status="success" if result["success"] else "error",
+        status=_status_of(result),
         duration_ms=result["duration_ms"],
+        worker_id=result.get("worker_id") or "unplaced",
+        cold_start=bool(result.get("cold_start")),
     )
     db.add(invocation)
     await db.commit()
     await db.refresh(invocation)
 
-    # Step 6: Return the result
+    # Step 8: Return the result
     if not result["success"]:
         return {
             "success": False,
@@ -107,6 +126,7 @@ async def invoke_function(
             "duration_ms": result["duration_ms"],
             "invocation_id": invocation.id,
             "cold_start": result.get("cold_start", True),
+            "worker_id": invocation.worker_id,
         }
 
     return {
@@ -115,6 +135,7 @@ async def invoke_function(
         "duration_ms": result["duration_ms"],
         "invocation_id": invocation.id,
         "cold_start": result.get("cold_start", True),
+        "worker_id": invocation.worker_id,
     }
 
 
