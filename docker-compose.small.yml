@@ -1,0 +1,21 @@
+# Overlay for a 1GB free-tier box (Oracle E2.1.Micro, GCP e2-micro, AWS
+# t3.micro). Applied automatically by scripts/deploy.sh when the host has less
+# than 2GB of RAM.
+#
+# One control plane instead of two and two workers instead of three. That is
+# still a genuine fleet -- the scheduler is placing work across machines it has
+# to choose between, which is the part worth showing. What is lost is
+# surviving the loss of the single control plane.
+
+services:
+  control-plane:
+    deploy:
+      replicas: 1
+
+  worker:
+    deploy:
+      replicas: 2
+    environment:
+      # Fewer concurrent containers, because 128MB each adds up fast on a box
+      # that only has 1GB in total.
+      WORKER_CONCURRENCY: 2

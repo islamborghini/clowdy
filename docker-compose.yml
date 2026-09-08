@@ -23,6 +23,7 @@ services:
   # --- Data stores -------------------------------------------------------
 
   postgres:
+    restart: unless-stopped
     image: postgres:17-alpine
     environment:
       POSTGRES_USER: clowdy
@@ -40,6 +41,7 @@ services:
       retries: 15
 
   redis:
+    restart: unless-stopped
     image: redis:7-alpine
     # Registry data is entirely reconstructible from worker heartbeats within
     # one TTL, so persistence would be pure cost.
@@ -78,6 +80,7 @@ services:
   # --- Control plane -----------------------------------------------------
 
   control-plane:
+    restart: unless-stopped
     build: ./backend
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     # Needs the Docker socket to build per-project dependency images. On ECS
@@ -110,6 +113,7 @@ services:
       retries: 5
 
   lb:
+    restart: unless-stopped
     image: nginx:1.27-alpine
     volumes:
       - ./infra/lb/nginx.conf:/etc/nginx/nginx.conf:ro
@@ -121,6 +125,7 @@ services:
   # --- Data plane --------------------------------------------------------
 
   worker:
+    restart: unless-stopped
     build: ./backend
     command: uvicorn app.worker.main:app --host 0.0.0.0 --port 9000
     # Root for the Docker socket. A production fleet would instead run each
@@ -147,6 +152,7 @@ services:
   # --- Frontend ----------------------------------------------------------
 
   frontend:
+    restart: unless-stopped
     build:
       context: ./frontend
       args:

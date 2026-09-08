@@ -571,9 +571,35 @@ so the cold-then-warm difference is visible), `burn` (holds a slot, for
 demonstrating backpressure), and `http_echo` (wired to gateway routes with
 path params).
 
+### One command on any Ubuntu VM
+
+The lazy path, and the one to use. Create a VM anywhere with a public IP, then:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/islamborghini/clowdy/version_control/scripts/deploy.sh | sudo bash
+```
+
+It installs Docker, adds swap if the box has under 2GB (a 1GB free tier will
+OOM during the image build without it), drops to a smaller fleet on small
+hosts, opens port 80 on the host firewall, brings the stack up, seeds the demo
+functions, installs a systemd unit so it survives reboots, and then verifies
+itself. Re-run it to deploy new commits.
+
+Check any deployment, local or remote:
+
+```bash
+./scripts/verify_deploy.sh http://your-server-ip
+```
+
+That checks behaviour rather than liveness: that functions execute, that the
+second call reuses a warm container, that the gateway extracts path params,
+and that writes really are blocked. A 200 from the frontend proves none of
+those.
+
 ### Oracle Cloud Always Free
 
-`infra/terraform-oracle/` deploys this to Oracle's Always Free tier: 4 ARM
+For infrastructure-as-code rather than a shell script,
+`infra/terraform-oracle/` deploys to Oracle's Always Free tier: 4 ARM
 cores, 24GB of memory, 200GB of disk, free permanently with no 12-month
 cliff. The platform idles around 430MB, so nearly all of that is headroom for
 function containers.
