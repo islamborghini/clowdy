@@ -16,8 +16,14 @@
  *   /functions/new   -> Create a new function (code editor)
  *   /functions/:id   -> View/edit a specific function and its logs
  */
-import { BrowserRouter, Routes, Route } from "react-router"
-import { AuthProvider, AuthGuard, SignIn, SignUp } from "@/components/auth/AuthProvider"
+import { BrowserRouter, Routes, Route, Navigate } from "react-router"
+import {
+  AuthProvider,
+  AuthGuard,
+  CLERK_ENABLED,
+  SignIn,
+  SignUp,
+} from "@/components/auth/AuthProvider"
 import { Layout } from "@/components/layout/Layout"
 import { Dashboard } from "@/pages/Dashboard"
 import { Cluster } from "@/pages/Cluster"
@@ -34,20 +40,31 @@ function App() {
       <BrowserRouter>
         <Routes>
           {/* Auth routes - rendered outside the main layout */}
+          {/* Only mounted when Clerk is configured. These components throw
+              without a ClerkProvider, and with auth off there is nothing to
+              sign in to, so send visitors back to the app instead. */}
           <Route
             path="/sign-in/*"
             element={
-              <div className="flex min-h-screen items-center justify-center">
-                <SignIn routing="path" path="/sign-in" />
-              </div>
+              CLERK_ENABLED ? (
+                <div className="flex min-h-screen items-center justify-center">
+                  <SignIn routing="path" path="/sign-in" />
+                </div>
+              ) : (
+                <Navigate to="/" replace />
+              )
             }
           />
           <Route
             path="/sign-up/*"
             element={
-              <div className="flex min-h-screen items-center justify-center">
-                <SignUp routing="path" path="/sign-up" />
-              </div>
+              CLERK_ENABLED ? (
+                <div className="flex min-h-screen items-center justify-center">
+                  <SignUp routing="path" path="/sign-up" />
+                </div>
+              ) : (
+                <Navigate to="/" replace />
+              )
             }
           />
 

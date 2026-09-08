@@ -14,7 +14,13 @@ import { DEMO_MODE } from "./demo"
 
 // Read the backend URL from environment variables, falling back to localhost.
 // "import.meta.env" is Vite's way of accessing env vars (similar to process.env in Node).
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
+// ?? not ||: an empty VITE_API_URL is meaningful, not missing. Deployments
+// build with it set to "" so the browser calls /api on whatever origin served
+// the page, which nginx proxies to the control plane -- same-origin, no CORS,
+// no baked-in hostname. With || an empty value is falsy and falls through to
+// the dev default, so every deployed build calls localhost:8000 and fails with
+// connection refused on any machine that is not the developer's.
+const API_URL = import.meta.env.VITE_API_URL ?? "http://localhost:8000"
 
 /**
  * Generic fetch wrapper that handles JSON requests/responses and errors.

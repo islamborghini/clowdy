@@ -22,6 +22,17 @@ import { setTokenGetter } from "@/lib/auth"
 const CLERK_PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 
 /**
+ * Whether Clerk is configured at all.
+ *
+ * Every Clerk component -- UserButton, SignIn, SignedIn -- throws if it
+ * renders without a ClerkProvider ancestor, and one throw blanks the entire
+ * app. AuthProvider skips the provider when there is no key, so anything
+ * rendering a Clerk component has to check this first. Exported rather than
+ * re-derived per file so there is one answer to "is auth on".
+ */
+export const CLERK_ENABLED = Boolean(CLERK_PUBLISHABLE_KEY)
+
+/**
  * Inner component that bridges Clerk's useAuth hook with our auth.ts module.
  * Must be rendered inside ClerkProvider.
  *

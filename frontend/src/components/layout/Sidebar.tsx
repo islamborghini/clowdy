@@ -7,6 +7,7 @@
  */
 import { NavLink } from "react-router"
 import { UserButton } from "@clerk/clerk-react"
+import { CLERK_ENABLED } from "@/components/auth/AuthProvider"
 
 // Define navigation items as data so we can loop over them.
 // To add a new page, just add an entry here.
@@ -49,8 +50,13 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* User account section */}
+      {/* User account section. Clerk's UserButton throws without a
+          ClerkProvider, so with auth switched off this renders a plain label
+          instead of taking the whole app down. */}
       <div className="border-t p-4">
+        {!CLERK_ENABLED ? (
+          <p className="text-xs text-muted-foreground">Public demo - not signed in</p>
+        ) : (
         <UserButton
           afterSignOutUrl="/sign-in"
           appearance={{
@@ -60,6 +66,7 @@ export function Sidebar() {
             },
           }}
         />
+        )}
       </div>
     </aside>
   )
