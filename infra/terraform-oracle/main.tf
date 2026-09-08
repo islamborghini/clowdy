@@ -122,6 +122,13 @@ resource "oci_core_instance" "app" {
     memory_in_gbs = var.instance_memory_gb
   }
 
+  lifecycle {
+    precondition {
+      condition     = length(data.oci_core_images.ubuntu_arm.images) > 0
+      error_message = "No Ubuntu 24.04 aarch64 image found for VM.Standard.A1.Flex in ${var.region}. That shape is not offered in every region -- check the region supports A1, or adjust operating_system_version in the image data source."
+    }
+  }
+
   source_details {
     source_type = "image"
     source_id   = data.oci_core_images.ubuntu_arm.images[0].id

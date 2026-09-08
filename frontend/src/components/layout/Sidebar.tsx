@@ -12,7 +12,7 @@ import { CLERK_ENABLED } from "@/components/auth/AuthProvider"
 // Define navigation items as data so we can loop over them.
 // To add a new page, just add an entry here.
 const navItems = [
-  { to: "/", label: "Dashboard" },
+  { to: "/dashboard", label: "Dashboard" },
   { to: "/projects", label: "Projects" },
   { to: "/functions", label: "Functions" },
   { to: "/cluster", label: "Cluster" },
@@ -23,7 +23,9 @@ export function Sidebar() {
     <aside className="flex h-screen w-64 flex-col border-r bg-card">
       {/* App logo / brand */}
       <div className="flex h-14 items-center border-b px-4">
-        <h1 className="text-xl font-bold">Clowdy</h1>
+        <NavLink to="/" className="text-xl font-bold">
+          Clowdy
+        </NavLink>
       </div>
 
       {/* Navigation links */}
@@ -34,7 +36,7 @@ export function Sidebar() {
             to={item.to}
             // "end" ensures "/" only matches exactly "/", not "/functions" too.
             // Without this, the Dashboard link would be highlighted on every page.
-            end={item.to === "/"}
+            end={item.to === "/dashboard"}
             // NavLink gives us "isActive" - true when the current URL matches this link.
             // We use it to swap between highlighted and default styles.
             className={({ isActive }) =>

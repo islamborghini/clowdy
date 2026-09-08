@@ -306,6 +306,7 @@ clowdy/
     nginx.conf                   # SPA fallback, /api proxy, cache headers
     src/
       pages/
+        Landing.tsx              # Public front door; runs a live cold/warm demo
         Dashboard.tsx            # Overview stats
         Cluster.tsx              # Live worker fleet and placement policy
         Projects.tsx             # Project list
@@ -354,7 +355,7 @@ docker compose up --build
 
 | URL | What |
 |---|---|
-| http://localhost:3000 | The app |
+| http://localhost:3000 | Landing page, then the app at `/dashboard` |
 | http://localhost:8080 | API, through the load balancer |
 | http://localhost:8080/api/cluster | Live fleet state |
 | http://localhost:8080/docs | OpenAPI docs |
@@ -558,6 +559,11 @@ blocked regardless of who is asking, so the two mechanisms are independent.
 docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
 docker compose exec -T control-plane python -m app.seed_demo
 ```
+
+The landing page at `/` is the public front door. Its hero is a live demo
+rather than a claim: on load it invokes a real function twice and shows the
+measured cold and warm durations, labelled from the actual `cold_start` flag
+so the copy stays true when the pool is already warm.
 
 The seeder is idempotent and creates four functions, each exercising a
 different part of the platform: `hello` (minimal), `fibonacci` (real CPU work,

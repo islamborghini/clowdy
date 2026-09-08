@@ -10,7 +10,8 @@
  * Route structure:
  *   /sign-in         -> Clerk sign-in page
  *   /sign-up         -> Clerk sign-up page
- *   /                -> Dashboard (overview stats)
+ *   /                -> Landing page (public, no sidebar)
+ *   /dashboard       -> Dashboard (overview stats)
  *   /cluster         -> Live worker fleet and placement policy
  *   /functions       -> List of all deployed functions
  *   /functions/new   -> Create a new function (code editor)
@@ -26,6 +27,7 @@ import {
 } from "@/components/auth/AuthProvider"
 import { Layout } from "@/components/layout/Layout"
 import { Dashboard } from "@/pages/Dashboard"
+import { Landing } from "@/pages/Landing"
 import { Cluster } from "@/pages/Cluster"
 import { Projects } from "@/pages/Projects"
 import { CreateProject } from "@/pages/CreateProject"
@@ -68,6 +70,11 @@ function App() {
             }
           />
 
+          {/* Public front door. Outside AuthGuard on purpose -- someone who
+              has never seen this project needs to be able to read it without
+              signing in. */}
+          <Route path="/" element={<Landing />} />
+
           {/* Protected routes - require authentication */}
           <Route
             element={
@@ -76,7 +83,7 @@ function App() {
               </AuthGuard>
             }
           >
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/cluster" element={<Cluster />} />
             <Route path="/projects" element={<Projects />} />
             <Route path="/projects/new" element={<CreateProject />} />
