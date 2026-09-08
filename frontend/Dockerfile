@@ -16,8 +16,14 @@ RUN npm ci
 
 COPY . .
 
-# Vite inlines env vars at build time, so the API URL is a build argument
-# rather than a runtime one. Defaults to same-origin, which is what the
+# Vite inlines env vars at build time, so these are build arguments rather
+# than runtime ones.
+#
+# Docker will warn that a key is being passed through ARG/ENV. It is correct
+# to warn in general and wrong here: a Clerk *publishable* key is public by
+# design and ships inside the JavaScript bundle either way. The secret half is
+# the Clerk secret key, which the backend reads from the environment at
+# runtime and which never enters an image. Defaults to same-origin, which is what the
 # nginx proxy below serves.
 ARG VITE_API_URL=""
 ARG VITE_CLERK_PUBLISHABLE_KEY=""

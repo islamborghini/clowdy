@@ -571,6 +571,25 @@ so the cold-then-warm difference is visible), `burn` (holds a slot, for
 demonstrating backpressure), and `http_echo` (wired to gateway routes with
 path params).
 
+### Google Cloud free tier, end to end
+
+`e2-micro` is free permanently -- no 12-month cliff -- and unlike Oracle's ARM
+shape it is reliably available.
+
+1. Create a VM at console.cloud.google.com > Compute Engine > Create instance
+2. **Region must be `us-west1`, `us-central1`, or `us-east1`.** The free tier
+   covers no others, and a VM anywhere else is billed.
+3. Machine type `e2-micro`.
+4. Boot disk: Ubuntu 24.04 LTS, and change the type to **Standard persistent
+   disk** at 30GB. The console defaults to a balanced disk, which is not in
+   the free tier. This is the usual way people get a surprise bill.
+5. Tick **Allow HTTP traffic**.
+6. Create, then SSH in from the browser button and run the command below.
+
+e2-micro is 1GB with a shared vCPU, so the deploy script adds swap and runs
+the reduced fleet automatically. The build takes 15-30 minutes on that
+hardware; it is slow, not stuck.
+
 ### One command on any Ubuntu VM
 
 The lazy path, and the one to use. Create a VM anywhere with a public IP, then:
