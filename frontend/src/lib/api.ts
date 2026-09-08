@@ -10,6 +10,7 @@
  */
 
 import { getAuthToken } from "./auth"
+import { DEMO_MODE } from "./demo"
 
 // Read the backend URL from environment variables, falling back to localhost.
 // "import.meta.env" is Vite's way of accessing env vars (similar to process.env in Node).
@@ -26,10 +27,29 @@ const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
  * @returns The parsed JSON response, typed as T
  * @throws Error if the response status is not 2xx
  */
+const MUTATING_METHODS = ["POST", "PUT", "PATCH", "DELETE"]
+
+/** Requests the demo allows through: running a deployed function. */
+const EXECUTION_PATHS = ["/api/invoke/", "/api/gateway/"]
+
 export async function apiFetch<T>(
   path: string,
   options?: RequestInit
 ): Promise<T> {
+  // In demo mode, fail a write before it leaves the browser. The backend
+  // rejects it anyway; this just turns a bare 403 into an explanation, and it
+  // covers every control rather than only the ones hidden from the UI.
+  const method = (options?.method ?? "GET").toUpperCase()
+  if (
+    DEMO_MODE &&
+    MUTATING_METHODS.includes(method) &&
+    !EXECUTION_PATHS.some((prefix) => path.startsWith(prefix))
+  ) {
+    throw new Error(
+      "This is a read-only demo. Clone the repo and run `docker compose up` to create and edit functions."
+    )
+  }
+
   const token = await getAuthToken()
   const headers: Record<string, string> = {
     "Content-Type": "application/json",

@@ -25,6 +25,7 @@ Design decisions and the options rejected along the way:
 - [Setup Guide](#setup-guide)
 - [Running the Cluster](#running-the-cluster)
 - [Deploying to AWS](#deploying-to-aws)
+- [Hosting a Public Demo](#hosting-a-public-demo)
 - [API Endpoints](#api-endpoints)
 - [Security Model](#security-model)
 - [Testing](#testing)
@@ -439,6 +440,7 @@ curl http://localhost:8000/api/health
 | Variable | Required | Default | Source |
 |---|---|---|---|
 | `DATABASE_URL` | No | `sqlite+aiosqlite:///./clowdy.db` | -- |
+| `DEMO_MODE` | No | `false` | Read-only public demo: blocks writes, makes reads public |
 | `FRONTEND_URL` | No | `http://localhost:5173` | -- |
 | `GROQ_API_KEY` | Yes | -- | https://console.groq.com/keys |
 | `CLERK_JWKS_URL` | Yes | -- | Clerk dashboard > API Keys |
@@ -463,6 +465,7 @@ curl http://localhost:8000/api/health
 | Variable | Required | Default |
 |---|---|---|
 | `VITE_API_URL` | No | `http://localhost:8000` |
+| `VITE_DEMO_MODE` | No | `false` | Hides write controls; cosmetic only, the backend enforces |
 
 ## Running the Cluster
 
@@ -532,6 +535,60 @@ for Lambda itself.
 [docs/architecture.md](docs/architecture.md#local-topology-to-aws) maps every
 compose service to its AWS counterpart and explains the security-group,
 IAM, and health-check choices.
+
+## Hosting a Public Demo
+
+A public host runs Python from anyone who can reach it, so the demo deployment
+is read-only. `DEMO_MODE=true` blocks every state-changing request at the API
+edge, with two exceptions -- invoking a function and calling a gateway route,
+which are the whole point of a deployed endpoint.
+
+That check is one middleware rather than a guard on each of ~20 mutating
+routes, because the failure mode of per-endpoint guards is not today's
+oversight, it is the router added next month with no guard at all. Blocking by
+HTTP method at the edge means a new route is locked down by default.
+`/api/chat` is blocked too: the AI assistant has create, update, and delete
+tools, so leaving it open would hand back everything demo mode closes.
+
+Reads are public in demo mode -- every caller is a shared `demo` user -- so
+visitors browse the seeded content instead of hitting 401s. Writes stay
+blocked regardless of who is asking, so the two mechanisms are independent.
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+docker compose exec -T control-plane python -m app.seed_demo
+```
+
+The seeder is idempotent and creates four functions, each exercising a
+different part of the platform: `hello` (minimal), `fibonacci` (real CPU work,
+so the cold-then-warm difference is visible), `burn` (holds a slot, for
+demonstrating backpressure), and `http_echo` (wired to gateway routes with
+path params).
+
+### Oracle Cloud Always Free
+
+`infra/terraform-oracle/` deploys this to Oracle's Always Free tier: 4 ARM
+cores, 24GB of memory, 200GB of disk, free permanently with no 12-month
+cliff. The platform idles around 430MB, so nearly all of that is headroom for
+function containers.
+
+```bash
+cd infra/terraform-oracle
+terraform init
+terraform apply    # needs tenancy/user OCIDs, API key fingerprint, SSH pubkey
+```
+
+Cloud-init installs Docker, clones the repo, brings up the demo overlay, and
+seeds the example functions. Allow 5-10 minutes on first boot -- it builds
+four images on an ARM box.
+
+Two things that trip up a first Oracle deploy, both handled in the stack:
+
+- The A1 ARM shape is heavily oversubscribed. `Out of host capacity` is a
+  capacity error, not a config error; retry or pick a quieter region.
+- Oracle's Ubuntu images ship an iptables policy that drops everything except
+  SSH. Opening port 80 in the VCN security list is necessary but not
+  sufficient, so cloud-init opens it on the host too and persists the rule.
 
 ## API Endpoints
 
@@ -630,6 +687,13 @@ Every function runs in a Docker container with strict limits:
 - **Timeout** -- 30 seconds maximum, container killed after
 - **No volume mounts** -- code copied via `put_archive`, no host filesystem access
 - **Warm pool reuse** -- containers are kept warm for fast invocations but capped in size (LRU eviction) and reaped after idle timeout. Code is copied in fresh on every invocation so versions cannot leak between calls.
+
+### Demo Mode
+
+When `DEMO_MODE=true`, one middleware rejects every `POST`/`PUT`/`PATCH`/
+`DELETE` except `/api/invoke/*` and `/api/gateway/*`, so a public host cannot
+have functions created or edited on it. The frontend flag only hides controls
+that would fail; it is not the boundary, and the backend does not trust it.
 
 ### Fleet Isolation
 

@@ -272,6 +272,11 @@ fleet is the aggregate in-flight ratio, which the control plane already
 computes for `/api/cluster`. Publishing that as a custom CloudWatch metric and
 target-tracking on it is the natural next step; CPU is a proxy that lags.
 
+**Public deployments are read-only.** The demo host blocks writes rather than
+authenticating them, because the alternative -- open sign-ups on a box that
+runs arbitrary Python -- gets abused within days. A real multi-tenant
+deployment needs per-account isolation, not a global read-only switch.
+
 **No per-tenant quotas.** Concurrency is capped per worker, so the fleet cannot
 be overwhelmed, but one user can consume all of it. Real per-account
 reservations need a token bucket per user in Redis at the dispatcher.

@@ -4,6 +4,7 @@
  * Fetches all deployed functions from the backend API and displays them
  * as clickable cards. Shows an empty state when no functions exist yet.
  */
+import { DEMO_MODE } from "@/lib/demo"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -26,9 +27,11 @@ export function Functions() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-3xl font-bold">Functions</h2>
-        <Link to="/functions/new">
-          <Button>+ New Function</Button>
-        </Link>
+        {!DEMO_MODE && (
+          <Link to="/functions/new">
+            <Button>+ New Function</Button>
+          </Link>
+        )}
       </div>
 
       {loading ? (

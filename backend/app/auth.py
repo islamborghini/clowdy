@@ -20,7 +20,7 @@ import jwt
 from jwt import PyJWKClient
 from fastapi import Depends, HTTPException, Request
 
-from app.config import CLERK_JWKS_URL
+from app.config import CLERK_JWKS_URL, DEMO_MODE, DEMO_USER_ID
 
 # Lazily initialized JWKS client. It fetches and caches Clerk's public keys
 # so we can verify JWT signatures without calling Clerk on every request.
@@ -47,12 +47,20 @@ async def get_current_user(request: Request) -> str:
     Returns the user_id (Clerk's "sub" claim) if the token is valid.
     Raises 401 if the token is missing or invalid.
 
+    In demo mode there is no sign-in, so every caller is the shared demo user.
+    That makes the public read endpoints work without handing anyone write
+    access: the demo middleware rejects state-changing requests before they
+    ever reach a route, whoever the caller claims to be.
+
     Usage:
         @router.get("/my-stuff")
         async def my_stuff(user_id: str = Depends(get_current_user)):
             # user_id is guaranteed to be a valid Clerk user ID
             ...
     """
+    if DEMO_MODE:
+        return DEMO_USER_ID
+
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing auth token")

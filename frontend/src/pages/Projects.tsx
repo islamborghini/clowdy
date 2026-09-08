@@ -4,6 +4,7 @@
  * Fetches all projects from the backend API and displays them
  * as clickable cards. Shows an empty state when no projects exist yet.
  */
+import { DEMO_MODE } from "@/lib/demo"
 import { useEffect, useState } from "react"
 import { Link } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -26,9 +27,11 @@ export function Projects() {
     <div>
       <div className="mb-6 flex items-center justify-between">
         <h2 className="text-3xl font-bold">Projects</h2>
-        <Link to="/projects/new">
-          <Button>+ New Project</Button>
-        </Link>
+        {!DEMO_MODE && (
+          <Link to="/projects/new">
+            <Button>+ New Project</Button>
+          </Link>
+        )}
       </div>
 
       {loading ? (

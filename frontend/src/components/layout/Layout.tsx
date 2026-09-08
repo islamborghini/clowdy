@@ -17,6 +17,7 @@ import { Outlet } from "react-router"
 import { Button } from "@/components/ui/button"
 import { Sidebar } from "./Sidebar"
 import { ChatPanel } from "@/components/chat/ChatPanel"
+import { DEMO_MODE } from "@/lib/demo"
 
 export function Layout() {
   const [chatOpen, setChatOpen] = useState(false)
@@ -27,11 +28,26 @@ export function Layout() {
       {/* flex-1 makes this take up all remaining horizontal space after the sidebar.
           overflow-auto adds a scrollbar if the page content is taller than the screen. */}
       <main className="flex-1 overflow-auto bg-background p-6">
+        {DEMO_MODE && (
+          <div className="mb-6 rounded-lg border border-dashed bg-muted/50 px-4 py-3 text-sm">
+            <span className="font-medium">Read-only demo.</span>{" "}
+            Browse everything, invoke the example functions, and watch the{" "}
+            <a href="/cluster" className="underline underline-offset-2">
+              cluster
+            </a>{" "}
+            distribute the work. Creating and editing are disabled here -- clone
+            the repo and run{" "}
+            <code className="rounded bg-muted px-1 py-0.5 font-mono text-xs">
+              docker compose up
+            </code>{" "}
+            for the full platform.
+          </div>
+        )}
         <Outlet />
       </main>
 
       {/* Floating chat button - bottom right corner */}
-      {!chatOpen && (
+      {!chatOpen && !DEMO_MODE && (
         <Button
           onClick={() => setChatOpen(true)}
           className="fixed right-6 bottom-6 z-30 h-12 w-12 rounded-full shadow-lg"
@@ -42,7 +58,7 @@ export function Layout() {
       )}
 
       {/* Sliding chat panel */}
-      <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />
+      {!DEMO_MODE && <ChatPanel open={chatOpen} onClose={() => setChatOpen(false)} />}
     </div>
   )
 }

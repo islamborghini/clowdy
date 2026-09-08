@@ -4,6 +4,7 @@
  * Shows project metadata and a tabbed interface with Functions,
  * Environment Variables, and Settings tabs.
  */
+import { DEMO_MODE } from "@/lib/demo"
 import { useEffect, useState } from "react"
 import { useParams, Link, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -330,7 +331,7 @@ export function ProjectDetail() {
               Functions ({functions.length})
             </h3>
             <Link to={`/projects/${id}/functions/new`}>
-              <Button size="sm">+ Add Function</Button>
+              <Button size="sm" disabled={DEMO_MODE}>+ Add Function</Button>
             </Link>
           </div>
 

@@ -25,8 +25,15 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth import get_current_user
-from app.config import FRONTEND_URL, REDIS_URL, RUN_MIGRATIONS, WORKER_TTL_SECONDS
+from app.config import (
+    DEMO_MODE,
+    FRONTEND_URL,
+    REDIS_URL,
+    RUN_MIGRATIONS,
+    WORKER_TTL_SECONDS,
+)
 from app.database import engine, get_db
+from app.middleware.demo_mode import demo_mode_middleware
 from app.models import Function, Invocation
 from app.routers import (
     chat,
@@ -139,6 +146,13 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers (including Content-Type, Authorization)
 )
 
+# Read-only demo mode, registered before CORS so a blocked response still
+# carries CORS headers and the browser can read the 403 body.
+if DEMO_MODE:
+    app.middleware("http")(demo_mode_middleware)
+    logger.info("DEMO_MODE is on -- all writes are blocked except invoke and gateway")
+
+
 # Register routers - each adds a group of related endpoints
 app.include_router(projects.router)
 app.include_router(env_vars.router)
@@ -154,8 +168,13 @@ app.include_router(cluster.router)
 
 @app.get("/api/health")
 async def health():
-    """Simple health check endpoint. Returns {"status": "ok"} if the server is running."""
-    return {"status": "ok"}
+    """Liveness check, plus whether this instance is a read-only demo.
+
+    Deliberately touches no database, Redis, or Docker: a health check that
+    verifies dependencies turns one slow query into the load balancer pulling
+    every replica out of service at once.
+    """
+    return {"status": "ok", "demo_mode": DEMO_MODE}
 
 
 @app.get("/api/stats")

@@ -93,8 +93,16 @@ jobs:
           terraform init -backend=false
           terraform validate
 
-      - name: Compose file parses
-        run: docker compose config --quiet
+      - name: Validate the Oracle demo stack
+        working-directory: infra/terraform-oracle
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Compose files parse
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.demo.yml config --quiet
 
   images:
     runs-on: ubuntu-latest

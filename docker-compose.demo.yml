@@ -1,0 +1,28 @@
+# Overlay for the public read-only demo.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.demo.yml up -d --build
+#
+# Two independent switches, on purpose. DEMO_MODE on the control plane is the
+# security boundary -- it rejects every write at the edge. VITE_DEMO_MODE on
+# the frontend only hides controls that would fail, so visitors do not click
+# into a wall of 403s. The backend does not trust the frontend for this.
+
+services:
+  control-plane:
+    environment:
+      DEMO_MODE: "true"
+
+  worker:
+    # A public box runs code from strangers only through the demo's existing
+    # functions, but keep each worker's concurrency modest so one visitor
+    # cannot occupy the whole fleet.
+    environment:
+      WORKER_CONCURRENCY: 4
+
+  frontend:
+    build:
+      args:
+        VITE_DEMO_MODE: "true"
+    # Serve on the standard HTTP port so the box works without a port suffix.
+    ports: !override
+      - "80:80"

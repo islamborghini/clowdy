@@ -88,3 +88,13 @@ RUN_MIGRATIONS = os.getenv("RUN_MIGRATIONS", "true").lower() != "false"
 
 # Log SQL statements. Noisy; off by default outside local development.
 SQL_ECHO = os.getenv("SQL_ECHO", "false").lower() == "true"
+
+# Read-only demo mode. Blocks every state-changing request except invoking a
+# function and calling a gateway route, so a public deployment can show the
+# platform without handing strangers code execution on the host.
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() == "true"
+
+# Identity every visitor to the demo shares. Reads are attributed to it so a
+# public visitor sees the seeded content instead of a wall of 401s; writes are
+# blocked by the demo middleware regardless of who is asking.
+DEMO_USER_ID = "demo"

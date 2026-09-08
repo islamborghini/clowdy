@@ -7,6 +7,7 @@
  *
  * The function ID comes from the URL parameter (e.g. /functions/abc123).
  */
+import { DEMO_MODE } from "@/lib/demo"
 import { useEffect, useState } from "react"
 import { useParams, Link, useNavigate } from "react-router"
 import { Button } from "@/components/ui/button"
@@ -286,10 +287,14 @@ export function FunctionDetail() {
             </>
           ) : (
             <>
-              <Button variant="outline" onClick={startEditing} disabled={viewingOldVersion}>
+              <Button
+                variant="outline"
+                onClick={startEditing}
+                disabled={viewingOldVersion || DEMO_MODE}
+              >
                 Edit
               </Button>
-              <Button variant="destructive" onClick={handleDelete}>
+              <Button variant="destructive" onClick={handleDelete} disabled={DEMO_MODE}>
                 Delete
               </Button>
             </>
